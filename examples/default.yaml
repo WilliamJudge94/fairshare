@@ -1,0 +1,10 @@
+# Example policy configuration for fairshared daemon
+# This file should be placed at /etc/fairshare/policy.d/default.yaml
+
+defaults:
+  cpu: 2
+  mem: 8G
+
+max:
+  cpu: 8
+  mem: 32G

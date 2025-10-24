@@ -1,0 +1,21 @@
+[package]
+name = "fairshared"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fairshared"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1.41", features = ["full"] }
+zbus = "5.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"

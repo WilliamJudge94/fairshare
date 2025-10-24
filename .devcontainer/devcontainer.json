@@ -1,0 +1,31 @@
+{
+  "name": "Rust (slim-bullseye) with systemd",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+
+  "overrideCommand": false,
+  "runArgs": [
+    "--privileged",
+    "--cgroupns=host",
+    "-v", "/sys/fs/cgroup:/sys/fs/cgroup:rw"
+  ],
+
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:latest": {}
+  },
+
+  "customizations": { "vscode": { "extensions": ["rust-lang.rust-analyzer"] } },
+
+  "mounts": [
+    {
+      "source": "${localEnv:HOME}${localEnv:USERPROFILE}/.ssh",
+      "target": "/root/.ssh",
+      "type": "bind"
+    }
+  ],
+
+  "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
+  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}",
+  "remoteUser": "root"
+}
