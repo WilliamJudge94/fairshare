@@ -4,32 +4,62 @@ use std::fs;
 use std::path::Path;
 use users;
 
+/// Check if pkexec is available on the system
+pub fn check_pkexec_installed() -> bool {
+    Command::new("which")
+        .arg("pkexec")
+        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// Check if polkit policy is installed
+pub fn check_policy_installed() -> bool {
+    Path::new("/usr/share/polkit-1/actions/com.fairshare.policy").exists()
+}
+
 pub fn set_user_limits(cpu: u32, mem: &str) -> io::Result<()> {
     let uid = users::get_current_uid();
     let mem_bytes = parse_mem_bytes(mem);
 
-    Command::new("sudo")
-        .args([
-            "systemctl",
-            "set-property",
-            &format!("user-{}.slice", uid),
-            &format!("CPUQuota={}%", cpu * 100),
-            &format!("MemoryMax={}", mem_bytes),
-        ])
-        .status()?;
+    let mut cmd = if users::get_current_uid() == 0 {
+        Command::new("systemctl")
+    } else {
+        let mut c = Command::new("pkexec");
+        c.arg("systemctl");
+        c
+    };
+
+    cmd.args([
+        "set-property",
+        &format!("user-{}.slice", uid),
+        &format!("CPUQuota={}%", cpu * 100),
+        &format!("MemoryMax={}", mem_bytes),
+    ])
+    .status()?;
 
     Ok(())
 }
 
 pub fn release_user_limits() -> io::Result<()> {
     let uid = users::get_current_uid();
-    Command::new("sudo")
-        .args([
-            "systemctl",
-            "revert",
-            &format!("user-{}.slice", uid),
-        ])
-        .status()?;
+
+    let mut cmd = if users::get_current_uid() == 0 {
+        Command::new("systemctl")
+    } else {
+        let mut c = Command::new("pkexec");
+        c.arg("systemctl");
+        c
+    };
+
+    cmd.args([
+        "revert",
+        &format!("user-{}.slice", uid),
+    ])
+    .status()?;
+
     Ok(())
 }
 

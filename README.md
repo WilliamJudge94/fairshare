@@ -1,0 +1,168 @@
+# fairshare
+
+A systemd-based resource manager for multi-user Linux systems that provides fair allocation of CPU and memory resources.
+
+## Overview
+
+`fairshare` uses systemd user slices to manage resource allocation on shared Linux systems. It allows users to request and release resources dynamically while preventing resource over-allocation, and provides administrators with tools to set baseline defaults.
+
+## Features
+
+- View system-wide resource status and per-user allocations
+- Request CPU and memory resources for your user session
+- Release allocated resources back to defaults
+- Check your current resource allocation
+- Admin tools for setting global baseline limits
+
+## Installation
+
+### Prerequisites
+
+fairshare requires polkit (PolicyKit) to allow non-root users to manage resources:
+
+```bash
+# Debian/Ubuntu
+sudo apt install policykit-1
+
+# Fedora/RHEL
+sudo dnf install polkit
+
+# Arch Linux
+sudo pacman -S polkit
+```
+
+### Install fairshare
+
+Use the provided installation script:
+
+```bash
+sudo ./install.sh
+```
+
+Or manually:
+
+```bash
+cargo build --release
+sudo cp target/release/fairshare /usr/local/bin/
+sudo cp com.fairshare.policy /usr/share/polkit-1/actions/
+sudo chmod 644 /usr/share/polkit-1/actions/com.fairshare.policy
+```
+
+## Commands
+
+### `status`
+
+Show system totals and all user allocations.
+
+```bash
+fairshare status
+```
+
+Example output:
+```
+System total: 16.00 GB RAM / 8 CPUs
+Allocated: 12.50 GB RAM / 5.00 CPUs
+Available: 3.50 GB RAM / 3.00 CPUs
+
+Per-user allocations:
+  UID 1000 � 400.0% CPU, 8.00 GB RAM
+  UID 1001 � 100.0% CPU, 4.50 GB RAM
+```
+
+### `request`
+
+Request resources for your user session.
+
+```bash
+fairshare request --cpu 4 --mem 8G
+```
+
+Options:
+- `--cpu <NUM>`: Number of CPU cores to allocate
+- `--mem <SIZE>`: Memory to allocate (supports G for gigabytes, M for megabytes)
+
+The command will:
+- Check if requested resources are available
+- Allocate resources to your systemd user slice
+- Fail if resources exceed what's available
+
+### `release`
+
+Release all allocated resources back to system defaults.
+
+```bash
+fairshare release
+```
+
+This reverts your user slice configuration to the baseline defaults set by the administrator.
+
+### `info`
+
+Show your current user's resource allocation.
+
+```bash
+fairshare info
+```
+
+Displays the CPUQuota and MemoryMax values for your user slice.
+
+### `admin`
+
+Admin operations (requires root privileges).
+
+#### `admin setup`
+
+Set global baseline resource limits for all users.
+
+```bash
+sudo fairshare admin setup --cpu 10 --mem 512M
+```
+
+Options:
+- `--cpu <PERCENT>`: CPU quota percentage (default: 10)
+- `--mem <SIZE>`: Memory limit (default: 512M)
+
+This command:
+- Creates `/etc/systemd/system/user-.slice.d/00-defaults.conf` with default limits
+- Creates `/etc/fairshare/policy.toml` with policy configuration
+- Reloads the systemd daemon
+
+## How It Works
+
+`fairshare` interacts with systemd's resource management features:
+
+1. **User Slices**: Each user gets a `user-<UID>.slice` systemd unit that controls their resource limits
+2. **CPUQuota**: Sets the percentage of CPU time available (100% = 1 core, 400% = 4 cores)
+3. **MemoryMax**: Sets the maximum memory the user slice can consume
+4. **Resource Tracking**: Monitors all user slices to calculate available system resources
+5. **PolicyKit (polkit)**: Provides secure privilege escalation without requiring sudo access
+
+When you request resources, `fairshare` uses `pkexec systemctl set-property` to configure your user slice with polkit authentication. When you release resources, it uses `pkexec systemctl revert` to restore defaults. Users are prompted for authentication via polkit, which can be configured to allow specific users or groups without requiring full sudo access.
+
+## Requirements
+
+- Linux system with systemd
+- Rust 1.70+ (for building)
+- polkit (PolicyKit) for privilege management
+- No sudo access needed for regular users (polkit handles authentication)
+
+## Architecture
+
+The codebase is organized into modules:
+
+- `src/main.rs`: Entry point and command routing (main.rs:1)
+- `src/cli.rs`: Command-line interface definitions using clap (cli.rs:1)
+- `src/system.rs`: System information gathering and resource calculations (system.rs:1)
+- `src/systemd.rs`: Systemd interaction and configuration management (systemd.rs:1)
+
+Key functions:
+- `get_system_totals()`: Retrieves total CPU and memory (system.rs:15)
+- `get_user_allocations()`: Reads all user slice allocations (system.rs:30)
+- `check_request()`: Validates resource requests against availability (system.rs:82)
+- `set_user_limits()`: Applies resource limits via systemctl (systemd.rs:7)
+- `release_user_limits()`: Reverts user slice to defaults (systemd.rs:24)
+- `admin_setup_defaults()`: Configures global baseline limits (systemd.rs:53)
+
+## License
+
+This project is open source.

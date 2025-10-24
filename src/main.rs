@@ -10,6 +10,29 @@ use systemd::*;
 fn main() {
     let cli = Cli::parse();
 
+    // Check for polkit requirements on commands that need elevated privileges
+    match &cli.command {
+        Commands::Request { .. } | Commands::Release | Commands::Admin { .. } => {
+            if !systemd::check_pkexec_installed() {
+                eprintln!("❌ Error: pkexec is not installed.");
+                eprintln!("\nPlease install polkit:");
+                eprintln!("  Debian/Ubuntu: sudo apt install policykit-1");
+                eprintln!("  Fedora/RHEL:   sudo dnf install polkit");
+                eprintln!("  Arch:          sudo pacman -S polkit");
+                std::process::exit(1);
+            }
+
+            if !systemd::check_policy_installed() {
+                eprintln!("❌ Error: fairshare polkit policy is not installed.");
+                eprintln!("\nPlease install the policy file:");
+                eprintln!("  sudo cp com.fairshare.policy /usr/share/polkit-1/actions/");
+                eprintln!("  sudo chmod 644 /usr/share/polkit-1/actions/com.fairshare.policy");
+                std::process::exit(1);
+            }
+        }
+        _ => {}
+    }
+
     match &cli.command {
         Commands::Status => {
             let totals = get_system_totals();

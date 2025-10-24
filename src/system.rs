@@ -1,5 +1,5 @@
 use std::process::Command;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 
 pub struct SystemTotals {
     pub total_mem_gb: f64,
@@ -14,9 +14,11 @@ pub struct UserAlloc {
 
 pub fn get_system_totals() -> SystemTotals {
     let mut sys = System::new_all();
-    sys.refresh_all();
+    sys.refresh_memory();
+    sys.refresh_cpu();
 
-    let total_mem_gb = sys.total_memory() as f64 / 1e6;
+    // sysinfo::System::total_memory() returns bytes since v0.30
+    let total_mem_gb = sys.total_memory() as f64 / 1_073_741_824.0; // 1024^3
     let total_cpu = sys.cpus().len();
 
     SystemTotals {
@@ -84,7 +86,7 @@ pub fn check_request(
     req_mem_gb: &str,
 ) -> bool {
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
-    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1e9).sum();
+    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_073_741_824.0).sum();
 
     let available_cpu = totals.total_cpu as f64 - used_cpu;
     let available_mem = totals.total_mem_gb - used_mem;
@@ -106,18 +108,18 @@ fn parse_mem_gb(mem: &str) -> f64 {
 
 pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
-    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1e9).sum();
+    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_073_741_824.0).sum();
 
     println!(
-        "System total: {:.1} GB RAM / {} CPUs",
+        "System total: {:.2} GB RAM / {} CPUs",
         totals.total_mem_gb, totals.total_cpu
     );
     println!(
-        "Allocated: {:.1} GB RAM / {:.1} CPUs",
+        "Allocated: {:.2} GB RAM / {:.2} CPUs",
         used_mem, used_cpu
     );
     println!(
-        "Available: {:.1} GB RAM / {:.1} CPUs\n",
+        "Available: {:.2} GB RAM / {:.2} CPUs\n",
         totals.total_mem_gb - used_mem,
         totals.total_cpu as f64 - used_cpu
     );
@@ -125,10 +127,10 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
     println!("Per-user allocations:");
     for a in allocations {
         println!(
-            "  UID {} → {:.1}% CPU, {:.1} GB RAM",
+            "  UID {} → {:.1}% CPU, {:.2} GB RAM",
             a.uid,
             a.cpu_quota,
-            a.mem_bytes as f64 / 1e9
+            a.mem_bytes as f64 / 1_073_741_824.0
         );
     }
 }
