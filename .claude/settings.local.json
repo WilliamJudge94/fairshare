@@ -10,7 +10,9 @@
       "Bash(systemctl set-property:*)",
       "Bash(./target/debug/fairshare request:*)",
       "Bash(cat:*)",
-      "Bash(fairshare admin setup:*)"
+      "Bash(fairshare admin setup:*)",
+      "Bash(./target/release/fairshare release:*)",
+      "Bash(./target/release/fairshare status:*)"
     ],
     "deny": [],
     "ask": []

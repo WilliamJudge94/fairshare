@@ -101,10 +101,11 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
 
     fs::create_dir_all(dir)?;
     let mut f = fs::File::create(&conf_path)?;
+    let mem_bytes = (mem as u64) * 1_000_000_000; // Convert GB to bytes
     writeln!(
         f,
-        "[Slice]\nCPUQuota={}%\nMemoryMax={}G\n",
-        cpu * 100, mem
+        "[Slice]\nCPUQuota={}%\nMemoryMax={}\n",
+        cpu * 100, mem_bytes
     )?;
 
     println!("✔ Created {}", conf_path.display());
