@@ -16,6 +16,11 @@ pub fn parse_memory_size(size_str: &str) -> Result<u64> {
         }
     }
 
+    // If num_end is still 0, the entire string was numeric
+    if num_end == 0 {
+        num_end = size_str.len();
+    }
+
     if num_end == 0 {
         anyhow::bail!("Invalid memory size format: {}", size_str);
     }

@@ -1,7 +1,11 @@
 [package]
-name = "fairshared"
+name = "fairshare"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+name = "fairshare"
+path = "src/lib.rs"
 
 [[bin]]
 name = "fairshared"

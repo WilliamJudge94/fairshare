@@ -2,7 +2,7 @@
 // This file demonstrates how to use the PolicyManager in the daemon
 
 use anyhow::Result;
-use fairshared::policy::PolicyManager;
+use fairshare::policy::PolicyManager;
 
 #[tokio::main]
 async fn main() -> Result<()> {

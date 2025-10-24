@@ -78,9 +78,9 @@ Build the fairshared daemon that can create and manage systemd slices with CPU a
 - [ ] Daemon starts and creates Unix socket at `/run/fairshare.sock`
 - [ ] Daemon reads and validates policy from YAML file
 - [ ] Can create a systemd slice with CPU and memory limits via DBus
-- [ ] Can remove a systemd slice
+- [ ] Can remove 1a systemd slice
 - [ ] Handles concurrent requests from multiple users
-- [ ] Enforces max limits from policy
+- [ ] EnfoIcy
 - [ ] Logs all operations to stdout (tracing)
 - [ ] Compiles and runs on Linux (tested manually)
 

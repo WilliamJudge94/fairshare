@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(docker logs:*)",
-      "Bash(docker system:*)"
+      "Bash(docker system:*)",
+      "Bash(cargo test:*)"
     ],
     "deny": [],
     "ask": []
