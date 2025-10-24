@@ -4,7 +4,11 @@
       "Bash(docker logs:*)",
       "Bash(docker system:*)",
       "Bash(cargo test:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(systemctl show:*)",
+      "Read(//etc/systemd/system/user-.slice.d/**)",
+      "Bash(systemctl set-property:*)",
+      "Bash(./target/debug/fairshare request:*)"
     ],
     "deny": [],
     "ask": []

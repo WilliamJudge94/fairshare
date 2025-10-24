@@ -18,7 +18,7 @@ pub fn get_system_totals() -> SystemTotals {
     sys.refresh_cpu();
 
     // sysinfo::System::total_memory() returns bytes since v0.30
-    let total_mem_gb = sys.total_memory() as f64 / 1_073_741_824.0; // 1024^3
+    let total_mem_gb = sys.total_memory() as f64 / 1_000_000_000.0; // 10^9 (decimal GB)
     let total_cpu = sys.cpus().len();
 
     SystemTotals {
@@ -52,7 +52,7 @@ pub fn get_user_allocations() -> Vec<UserAlloc> {
                 "-p",
                 "MemoryMax",
                 "-p",
-                "CPUQuota",
+                "CPUQuotaPerSecUSec",
             ])
             .output()
             .unwrap();
@@ -63,9 +63,18 @@ pub fn get_user_allocations() -> Vec<UserAlloc> {
 
         for l in out.lines() {
             if l.starts_with("MemoryMax=") {
-                mem_bytes = l[10..].parse::<u64>().unwrap_or(0);
-            } else if l.starts_with("CPUQuota=") {
-                cpu_quota = l[9..].trim_end_matches('%').parse::<f64>().unwrap_or(0.0);
+                if let Some(value_str) = l.strip_prefix("MemoryMax=") {
+                    mem_bytes = value_str.parse::<u64>().unwrap_or(0);
+                }
+            } else if l.starts_with("CPUQuotaPerSecUSec=") {
+                if let Some(quota_str) = l.strip_prefix("CPUQuotaPerSecUSec=") {
+                    if let Some(sec_str) = quota_str.strip_suffix('s') {
+                        if let Ok(seconds) = sec_str.parse::<f64>() {
+                            // Convert seconds to percentage (1s = 100%, 2s = 200%, etc)
+                            cpu_quota = seconds * 100.0;
+                        }
+                    }
+                }
             }
         }
 
@@ -86,7 +95,7 @@ pub fn check_request(
     req_mem_gb: &str,
 ) -> bool {
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
-    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_073_741_824.0).sum();
+    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
 
     let available_cpu = totals.total_cpu as f64 - used_cpu;
     let available_mem = totals.total_mem_gb - used_mem;
@@ -108,7 +117,7 @@ fn parse_mem_gb(mem: &str) -> f64 {
 
 pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
-    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_073_741_824.0).sum();
+    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
 
     println!(
         "System total: {:.2} GB RAM / {} CPUs",
@@ -130,7 +139,7 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
             "  UID {} → {:.1}% CPU, {:.2} GB RAM",
             a.uid,
             a.cpu_quota,
-            a.mem_bytes as f64 / 1_073_741_824.0
+            a.mem_bytes as f64 / 1_000_000_000.0
         );
     }
 }
