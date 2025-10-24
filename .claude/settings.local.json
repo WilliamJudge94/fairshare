@@ -12,7 +12,12 @@
       "Bash(cat:*)",
       "Bash(fairshare admin setup:*)",
       "Bash(./target/release/fairshare release:*)",
-      "Bash(./target/release/fairshare status:*)"
+      "Bash(./target/release/fairshare status:*)",
+      "Bash(fairshare info:*)",
+      "Bash(fairshare status:*)",
+      "Bash(fairshare release:*)",
+      "Bash(su - testuser -c \"fairshare request --cpu 3 --mem 2\":*)",
+      "Bash(su - testuser -c \"fairshare info\")"
     ],
     "deny": [],
     "ask": []

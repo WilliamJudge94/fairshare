@@ -35,11 +35,11 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum AdminSubcommands {
-    /// Setup global baseline for all users
+    /// Setup global baseline for all users (default: 1 CPU, 2G RAM)
     Setup {
         #[arg(long, default_value_t = 1)]
         cpu: u32,
-        #[arg(long, default_value_t = 5)]
+        #[arg(long, default_value_t = 2)]
         mem: u32,
     },
 }

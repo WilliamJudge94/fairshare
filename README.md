@@ -2,6 +2,8 @@
 
 A systemd-based resource manager for multi-user Linux systems that provides fair allocation of CPU and memory resources.
 
+**Default allocation per user: 1 CPU core and 2G RAM**
+
 ## Overview
 
 `fairshare` uses systemd user slices to manage resource allocation on shared Linux systems. It allows users to request and release resources dynamically while preventing resource over-allocation, and provides administrators with tools to set baseline defaults.
@@ -52,15 +54,15 @@ Per-user allocations:
 
 ### `request`
 
-Request resources for your user session.
+Request resources for your user session beyond the default 1 CPU and 2G RAM.
 
 ```bash
-fairshare request --cpu 4 --mem 8G
+fairshare request --cpu 4 --mem 8
 ```
 
 Options:
 - `--cpu <NUM>`: Number of CPU cores to allocate
-- `--mem <SIZE>`: Memory to allocate (supports G for gigabytes, M for megabytes)
+- `--mem <NUM>`: Memory in gigabytes to allocate
 
 The command will:
 - Check if requested resources are available
@@ -96,12 +98,12 @@ Admin operations (requires root privileges).
 Set global baseline resource limits for all users.
 
 ```bash
-sudo fairshare admin setup --cpu 10 --mem 512M
+sudo fairshare admin setup --cpu 1 --mem 2
 ```
 
 Options:
-- `--cpu <PERCENT>`: CPU quota percentage (default: 10)
-- `--mem <SIZE>`: Memory limit (default: 512M)
+- `--cpu <NUM>`: Number of CPU cores (default: 1)
+- `--mem <NUM>`: Memory in gigabytes (default: 2)
 
 This command:
 - Creates `/etc/systemd/system/user-.slice.d/00-defaults.conf` with default limits
@@ -124,7 +126,15 @@ When you request resources, `fairshare` uses `systemctl --user set-property` to 
 
 - Linux system with systemd (with user session support)
 - Rust 1.70+ (for building)
-- No sudo access needed for regular users
+- No sudo access needed for regular users (except `admin setup`)
+
+## Default Resource Allocation
+
+Each user on the system receives by default:
+- **1 CPU core** (100% CPU quota)
+- **2G RAM** (2000000000 bytes MemoryMax)
+
+Users can request additional resources up to system availability. When resources are released, limits return to these defaults.
 
 ## Architecture
 

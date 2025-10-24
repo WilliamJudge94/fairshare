@@ -95,6 +95,9 @@ pub fn show_user_info() -> io::Result<()> {
     Ok(())
 }
 
+/// Setup global default resource allocations for all users.
+/// Default minimum: 1 CPU core and 2G RAM per user.
+/// Each user can request additional resources up to system limits.
 pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
     let dir = Path::new("/etc/systemd/system/user-.slice.d");
     let conf_path = dir.join("00-defaults.conf");
