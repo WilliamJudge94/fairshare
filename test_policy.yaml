@@ -1,0 +1,8 @@
+# Test policy configuration for fairshared daemon
+defaults:
+  cpu: 2
+  mem: 8G
+
+max:
+  cpu: 8
+  mem: 32G

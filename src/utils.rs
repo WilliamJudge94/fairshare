@@ -1,7 +1,7 @@
 use anyhow::{Result, Context};
 use std::path::{Path, PathBuf};
 use std::fs;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Parse memory size string (e.g., "1G", "512M") to bytes
 pub fn parse_memory_size(size_str: &str) -> Result<u64> {
