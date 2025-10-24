@@ -8,7 +8,9 @@
       "Bash(systemctl show:*)",
       "Read(//etc/systemd/system/user-.slice.d/**)",
       "Bash(systemctl set-property:*)",
-      "Bash(./target/debug/fairshare request:*)"
+      "Bash(./target/debug/fairshare request:*)",
+      "Bash(cat:*)",
+      "Bash(fairshare admin setup:*)"
     ],
     "deny": [],
     "ask": []
