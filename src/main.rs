@@ -10,29 +10,6 @@ use systemd::*;
 fn main() {
     let cli = Cli::parse();
 
-    // Check for polkit requirements on commands that need elevated privileges
-    match &cli.command {
-        Commands::Request { .. } | Commands::Release | Commands::Admin { .. } => {
-            if !systemd::check_pkexec_installed() {
-                eprintln!("❌ Error: pkexec is not installed.");
-                eprintln!("\nPlease install polkit:");
-                eprintln!("  Debian/Ubuntu: sudo apt install policykit-1");
-                eprintln!("  Fedora/RHEL:   sudo dnf install polkit");
-                eprintln!("  Arch:          sudo pacman -S polkit");
-                std::process::exit(1);
-            }
-
-            if !systemd::check_policy_installed() {
-                eprintln!("❌ Error: fairshare polkit policy is not installed.");
-                eprintln!("\nPlease install the policy file:");
-                eprintln!("  sudo cp com.fairshare.policy /usr/share/polkit-1/actions/");
-                eprintln!("  sudo chmod 644 /usr/share/polkit-1/actions/com.fairshare.policy");
-                std::process::exit(1);
-            }
-        }
-        _ => {}
-    }
-
     match &cli.command {
         Commands::Status => {
             let totals = get_system_totals();
@@ -44,17 +21,17 @@ fn main() {
             let totals = get_system_totals();
             let allocations = get_user_allocations();
 
-            if !check_request(&totals, &allocations, *cpu, mem) {
+            if !check_request(&totals, &allocations, *cpu, &mem.to_string()) {
                 eprintln!("❌ Request exceeds available system resources.");
                 std::process::exit(1);
             }
 
-            if let Err(e) = set_user_limits(*cpu, mem) {
+            if let Err(e) = set_user_limits(*cpu, *mem) {
                 eprintln!("❌ Failed to set limits: {}", e);
                 std::process::exit(1);
             }
 
-            println!("✅ Allocated {} CPU(s) and {} RAM.", cpu, mem);
+            println!("✅ Allocated {} CPU(s) and {}G RAM.", cpu, mem);
         }
 
         Commands::Release => {
@@ -73,12 +50,12 @@ fn main() {
 
         Commands::Admin { sub } => match sub {
             AdminSubcommands::Setup { cpu, mem } => {
-                if let Err(e) = admin_setup_defaults(*cpu, mem) {
+                if let Err(e) = admin_setup_defaults(*cpu, *mem) {
                     eprintln!("❌ Setup failed: {}", e);
                     std::process::exit(1);
                 }
                 println!(
-                    "✅ Global defaults applied: CPUQuota={}%, MemoryMax={}",
+                    "✅ Global defaults applied: CPUQuota={}%, MemoryMax={}G",
                     cpu, mem
                 );
             }

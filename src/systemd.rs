@@ -4,41 +4,40 @@ use std::fs;
 use std::path::Path;
 use users;
 
-/// Check if pkexec is available on the system
-pub fn check_pkexec_installed() -> bool {
-    Command::new("which")
-        .arg("pkexec")
-        .stderr(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
+// Minimum default resource thresholds
+const MIN_CPU_CORES: u32 = 1;
+const MIN_MEM_BYTES: u64 = 5_000_000_000; // 5G
 
-/// Check if polkit policy is installed
-pub fn check_policy_installed() -> bool {
-    Path::new("/usr/share/polkit-1/actions/com.fairshare.policy").exists()
-}
-
-pub fn set_user_limits(cpu: u32, mem: &str) -> io::Result<()> {
+pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     let uid = users::get_current_uid();
-    let mem_bytes = parse_mem_bytes(mem);
+    let mem_bytes = (mem as u64) * 1_000_000_000; // Convert GB to bytes
 
-    let mut cmd = if users::get_current_uid() == 0 {
+    let status = if uid == 0 {
+        // Root user: manage system-wide user slices
         Command::new("systemctl")
+            .arg("set-property")
+            .arg(&format!("user-{}.slice", uid))
+            .arg(format!("CPUQuota={}%", cpu * 100))
+            .arg(format!("MemoryMax={}", mem_bytes))
+            .status()?
     } else {
-        let mut c = Command::new("pkexec");
-        c.arg("systemctl");
-        c
+        // Regular user: manage their own user session
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("set-property")
+            .arg("--")
+            .arg("-.slice")
+            .arg(format!("CPUQuota={}%", cpu * 100))
+            .arg(format!("MemoryMax={}", mem_bytes))
+            .status()?
     };
 
-    cmd.args([
-        "set-property",
-        &format!("user-{}.slice", uid),
-        &format!("CPUQuota={}%", cpu * 100),
-        &format!("MemoryMax={}", mem_bytes),
-    ])
-    .status()?;
+    if !status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to set user limits (exit code: {:?})", status.code()),
+        ));
+    }
 
     Ok(())
 }
@@ -46,41 +45,119 @@ pub fn set_user_limits(cpu: u32, mem: &str) -> io::Result<()> {
 pub fn release_user_limits() -> io::Result<()> {
     let uid = users::get_current_uid();
 
-    let mut cmd = if users::get_current_uid() == 0 {
+    // Get current user limits to check if they're at or below minimums
+    let (current_cpu, current_mem) = get_current_limits()?;
+
+    // Check if already at or below minimums
+    if current_cpu <= MIN_CPU_CORES && current_mem <= MIN_MEM_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Cannot release below minimum thresholds: 1 CPU core and 5G RAM required".to_string(),
+        ));
+    }
+
+    let status = if uid == 0 {
+        // Root user: revert system-wide user slice
         Command::new("systemctl")
+            .arg("revert")
+            .arg(&format!("user-{}.slice", uid))
+            .status()?
     } else {
-        let mut c = Command::new("pkexec");
-        c.arg("systemctl");
-        c
+        // Regular user: revert their own user session
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("revert")
+            .arg("--")
+            .arg("-.slice")
+            .status()?
     };
 
-    cmd.args([
-        "revert",
-        &format!("user-{}.slice", uid),
-    ])
-    .status()?;
+    if !status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to release user limits (exit code: {:?})", status.code()),
+        ));
+    }
 
     Ok(())
 }
 
+fn get_current_limits() -> io::Result<(u32, u64)> {
+    let uid = users::get_current_uid();
+
+    let output = if uid == 0 {
+        // Root user: show system-wide user slice
+        Command::new("systemctl")
+            .arg("show")
+            .arg(&format!("user-{}.slice", uid))
+            .arg("-p")
+            .arg("MemoryMax")
+            .arg("-p")
+            .arg("CPUQuota")
+            .output()?
+    } else {
+        // Regular user: show their own user session
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("show")
+            .arg("-.slice")
+            .arg("-pMemoryMax")
+            .arg("-pCPUQuota")
+            .output()?
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut cpu = 0u32;
+    let mut mem = 0u64;
+
+    for line in stdout.lines() {
+        if line.starts_with("CPUQuota=") {
+            if let Some(quota_str) = line.strip_prefix("CPUQuota=") {
+                if let Some(pct_str) = quota_str.strip_suffix('%') {
+                    if let Ok(pct) = pct_str.parse::<f64>() {
+                        cpu = (pct / 100.0) as u32;
+                    }
+                }
+            }
+        } else if line.starts_with("MemoryMax=") {
+            if let Some(mem_str) = line.strip_prefix("MemoryMax=") {
+                mem = parse_mem_bytes(mem_str);
+            }
+        }
+    }
+
+    Ok((cpu, mem))
+}
+
 pub fn show_user_info() -> io::Result<()> {
     let uid = users::get_current_uid();
-    let output = Command::new("systemctl")
-        .args([
-            "show",
-            &format!("user-{}.slice", uid),
-            "-p",
-            "MemoryMax",
-            "-p",
-            "CPUQuota",
-        ])
-        .output()?;
+
+    let output = if uid == 0 {
+        // Root user: show system-wide user slice
+        Command::new("systemctl")
+            .arg("show")
+            .arg(&format!("user-{}.slice", uid))
+            .arg("-p")
+            .arg("MemoryMax")
+            .arg("-p")
+            .arg("CPUQuota")
+            .output()?
+    } else {
+        // Regular user: show their own user session
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("show")
+            .arg("-.slice")
+            .arg("-pMemoryMax")
+            .arg("-pCPUQuota")
+            .output()?
+    };
 
     println!("{}", String::from_utf8_lossy(&output.stdout));
     Ok(())
 }
 
-pub fn admin_setup_defaults(cpu: u32, mem: &str) -> io::Result<()> {
+pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
     let dir = Path::new("/etc/systemd/system/user-.slice.d");
     let conf_path = dir.join("00-defaults.conf");
 
@@ -88,7 +165,7 @@ pub fn admin_setup_defaults(cpu: u32, mem: &str) -> io::Result<()> {
     let mut f = fs::File::create(&conf_path)?;
     writeln!(
         f,
-        "[Slice]\nCPUQuota={}%\nMemoryMax={}\n",
+        "[Slice]\nCPUQuota={}%\nMemoryMax={}G\n",
         cpu, mem
     )?;
 
@@ -101,7 +178,7 @@ pub fn admin_setup_defaults(cpu: u32, mem: &str) -> io::Result<()> {
     let mut policy = fs::File::create("/etc/fairshare/policy.toml")?;
     writeln!(
         policy,
-        "[defaults]\ncpu = {}\nmem = \"{}\"\n\n[max_caps]\ncpu = {}\nmem = \"{}\"\n",
+        "[defaults]\ncpu = {}\nmem = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
         cpu, mem, cpu * 10, mem
     )?;
     println!("✔ Created /etc/fairshare/policy.toml");

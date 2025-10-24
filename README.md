@@ -16,23 +16,6 @@ A systemd-based resource manager for multi-user Linux systems that provides fair
 
 ## Installation
 
-### Prerequisites
-
-fairshare requires polkit (PolicyKit) to allow non-root users to manage resources:
-
-```bash
-# Debian/Ubuntu
-sudo apt install policykit-1
-
-# Fedora/RHEL
-sudo dnf install polkit
-
-# Arch Linux
-sudo pacman -S polkit
-```
-
-### Install fairshare
-
 Use the provided installation script:
 
 ```bash
@@ -44,8 +27,6 @@ Or manually:
 ```bash
 cargo build --release
 sudo cp target/release/fairshare /usr/local/bin/
-sudo cp com.fairshare.policy /usr/share/polkit-1/actions/
-sudo chmod 644 /usr/share/polkit-1/actions/com.fairshare.policy
 ```
 
 ## Commands
@@ -131,20 +112,19 @@ This command:
 
 `fairshare` interacts with systemd's resource management features:
 
-1. **User Slices**: Each user gets a `user-<UID>.slice` systemd unit that controls their resource limits
-2. **CPUQuota**: Sets the percentage of CPU time available (100% = 1 core, 400% = 4 cores)
-3. **MemoryMax**: Sets the maximum memory the user slice can consume
-4. **Resource Tracking**: Monitors all user slices to calculate available system resources
-5. **PolicyKit (polkit)**: Provides secure privilege escalation without requiring sudo access
+1. **User Sessions**: Each user has their own systemd user session (accessed via `systemctl --user`)
+2. **User Slice**: Users control their own `-.slice` unit which manages their session resources
+3. **CPUQuota**: Sets the percentage of CPU time available (100% = 1 core, 400% = 4 cores)
+4. **MemoryMax**: Sets the maximum memory the user session can consume
+5. **Resource Tracking**: Monitors all user slices to calculate available system resources
 
-When you request resources, `fairshare` uses `pkexec systemctl set-property` to configure your user slice with polkit authentication. When you release resources, it uses `pkexec systemctl revert` to restore defaults. Users are prompted for authentication via polkit, which can be configured to allow specific users or groups without requiring full sudo access.
+When you request resources, `fairshare` uses `systemctl --user set-property` to configure your user session slice. When you release resources, it uses `systemctl --user revert` to restore defaults. No elevated privileges are needed since users manage their own sessions.
 
 ## Requirements
 
-- Linux system with systemd
+- Linux system with systemd (with user session support)
 - Rust 1.70+ (for building)
-- polkit (PolicyKit) for privilege management
-- No sudo access needed for regular users (polkit handles authentication)
+- No sudo access needed for regular users
 
 ## Architecture
 

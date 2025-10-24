@@ -12,12 +12,12 @@ pub enum Commands {
     /// Show system totals and all user allocations
     Status,
 
-    /// Request resources (e.g. --cpu 4 --mem 8G)
+    /// Request resources (e.g. --cpu 4 --mem 8)
     Request {
         #[arg(long)]
         cpu: u32,
         #[arg(long)]
-        mem: String,
+        mem: u32,
     },
 
     /// Release all signed-out resources back to default
@@ -37,9 +37,9 @@ pub enum Commands {
 pub enum AdminSubcommands {
     /// Setup global baseline for all users
     Setup {
-        #[arg(long, default_value_t = 10)]
+        #[arg(long, default_value_t = 1)]
         cpu: u32,
-        #[arg(long, default_value = "512M")]
-        mem: String,
+        #[arg(long, default_value_t = 5)]
+        mem: u32,
     },
 }
