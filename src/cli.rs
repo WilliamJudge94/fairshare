@@ -65,4 +65,17 @@ pub enum AdminSubcommands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Reset fairshare (uninstall then setup with new defaults)
+    Reset {
+        /// Default number of CPUs per user (1-1000)
+        #[arg(long, default_value_t = 1, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
+        cpu: u32,
+        /// Default amount of memory per user in GB (1-10000)
+        #[arg(long, default_value_t = 2, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
+        mem: u32,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
 }

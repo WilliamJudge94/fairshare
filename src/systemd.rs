@@ -421,6 +421,60 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
     Ok(())
 }
 
+/// Reset fairshare by performing a complete uninstall followed by setup with new defaults.
+/// This combines admin_uninstall_defaults() and admin_setup_defaults() into one operation.
+pub fn admin_reset(cpu: u32, mem: u32, force: bool) -> io::Result<()> {
+    // Show warning if not forced
+    if !force {
+        eprintln!("{} {}",
+            "⚠".bright_yellow().bold(),
+            "This will remove all fairshare configuration and user allocations, then reinstall with new defaults!".bright_yellow()
+        );
+        eprintln!("{} {}", "  This will:".bright_white().bold(), "");
+        eprintln!("    - Revert all active user allocations");
+        eprintln!("    - Remove all fairshare configuration files");
+        eprintln!("    - Setup new defaults with {} CPUs and {}G RAM per user", cpu, mem);
+        eprint!("\n{} {}", "Continue?".bright_white().bold(), "[y/N]: ".bright_white());
+        std::io::Write::flush(&mut std::io::stderr()).ok();
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).ok();
+        if !input.trim().eq_ignore_ascii_case("y") && !input.trim().eq_ignore_ascii_case("yes") {
+            println!("{} {}", "✗".red().bold(), "Reset cancelled.".red());
+            return Ok(());
+        }
+    }
+
+    println!("{}", "╔═══════════════════════════════════════╗".bright_cyan());
+    println!("{}", "║      FAIRSHARE RESET IN PROGRESS     ║".bright_cyan().bold());
+    println!("{}", "╚═══════════════════════════════════════╝".bright_cyan());
+    println!();
+
+    // Step 1: Uninstall
+    println!("{} {}", "→".bright_cyan().bold(), "Step 1/2: Uninstalling existing configuration...".bright_white());
+    println!();
+    admin_uninstall_defaults()?;
+    println!();
+
+    // Step 2: Setup
+    println!("{} {}", "→".bright_cyan().bold(), "Step 2/2: Setting up new defaults...".bright_white());
+    println!();
+    admin_setup_defaults(cpu, mem)?;
+    println!();
+
+    println!("{}", "╔═══════════════════════════════════════╗".bright_green());
+    println!("{}", "║        RESET COMPLETED SUCCESSFULLY   ║".bright_green().bold());
+    println!("{}", "╚═══════════════════════════════════════╝".bright_green());
+    println!();
+    println!("{} New defaults: {} {}",
+        "✓".green().bold(),
+        format!("CPUQuota={}%", cpu * 100).bright_yellow(),
+        format!("MemoryMax={}G", mem).bright_yellow()
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

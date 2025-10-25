@@ -111,6 +111,12 @@ fn main() {
                     "Global defaults uninstalled. System reverted to standard resource limits.".green()
                 );
             }
+            AdminSubcommands::Reset { cpu, mem, force } => {
+                if let Err(e) = admin_reset(*cpu, *mem, *force) {
+                    eprintln!("{} {}: {}", "✗".red().bold(), "Reset failed".red(), e);
+                    std::process::exit(1);
+                }
+            }
         },
     }
 }
