@@ -163,10 +163,109 @@ pub fn show_user_info() -> io::Result<()> {
     Ok(())
 }
 
+/// Check if PolicyKit (policykit-1) is installed on the system
+fn check_policykit_installed() -> bool {
+    // Method 1: Check if pkexec binary exists
+    if Command::new("which").arg("pkexec").output().map(|o| o.status.success()).unwrap_or(false) {
+        return true;
+    }
+
+    // Method 2: Check with dpkg (Debian/Ubuntu)
+    if let Ok(output) = Command::new("dpkg").args(["-l", "policykit-1"]).output() {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Check if package is installed (starts with "ii")
+            return stdout.lines().any(|line| line.starts_with("ii") && line.contains("policykit-1"));
+        }
+    }
+
+    false
+}
+
+/// Prompt user with a yes/no question and return their response
+fn prompt_yes_no(prompt: &str) -> io::Result<bool> {
+    print!("{}", prompt);
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    let response = input.trim().to_lowercase();
+    Ok(response == "y" || response == "yes")
+}
+
+/// Install PolicyKit using apt package manager
+fn install_policykit() -> io::Result<()> {
+    println!("{}", "Installing PolicyKit (policykit-1)...".bright_cyan());
+
+    // Update apt cache
+    println!("{}", "→ Updating apt cache...".bright_white());
+    let update_status = Command::new("apt")
+        .args(["update"])
+        .status()?;
+
+    if !update_status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to update apt cache. Please run 'apt update' manually."
+        ));
+    }
+
+    // Install policykit-1
+    println!("{}", "→ Installing policykit-1 package...".bright_white());
+    let install_status = Command::new("apt")
+        .args(["install", "-y", "policykit-1"])
+        .status()?;
+
+    if !install_status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to install policykit-1. Please install it manually with: apt install policykit-1"
+        ));
+    }
+
+    println!("{} {}", "✓".green().bold(), "PolicyKit installed successfully".bright_white());
+    Ok(())
+}
+
 /// Setup global default resource allocations for all users.
 /// Default minimum: 1 CPU core and 2G RAM per user.
 /// Each user can request additional resources up to system limits.
 pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
+    // Check if PolicyKit is installed first
+    print!("{} ", "→".bright_white());
+    print!("{}", "Checking PolicyKit installation...".bright_white());
+    io::stdout().flush()?;
+
+    if !check_policykit_installed() {
+        println!(" {}", "✗".red().bold());
+        eprintln!("{} {}", "⚠".bright_yellow().bold(), "PolicyKit (policykit-1) is required but not installed.".bright_yellow());
+        eprintln!("{}", "PolicyKit is needed for secure privilege escalation when users request resources.".bright_white());
+        println!();
+
+        match prompt_yes_no("Would you like to install it now? [y/n]: ") {
+            Ok(true) => {
+                install_policykit()?;
+                println!();
+            }
+            Ok(false) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "PolicyKit installation declined. Please install policykit-1 manually: apt install policykit-1"
+                ));
+            }
+            Err(e) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Failed to read user input: {}", e)
+                ));
+            }
+        }
+    } else {
+        println!(" {}", "✓".green().bold());
+    }
+
+
     // Validate inputs before operations
     if cpu > MAX_CPU {
         return Err(io::Error::new(
