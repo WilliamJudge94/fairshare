@@ -12,14 +12,42 @@ use crate::state;
 
 /// Get the UID of the user who invoked pkexec, or the current user if not run via pkexec.
 /// When run via pkexec, the PKEXEC_UID environment variable contains the original user's UID.
+/// This function validates that the UID is not root (0), not a system user (< 1000),
+/// and that the user exists on the system.
 pub fn get_calling_user_uid() -> io::Result<u32> {
     // First check if we're running via pkexec
     if let Ok(pkexec_uid_str) = env::var("PKEXEC_UID") {
-        pkexec_uid_str.parse::<u32>()
+        let uid = pkexec_uid_str.parse::<u32>()
             .map_err(|e| io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Invalid PKEXEC_UID environment variable: {}", e)
-            ))
+            ))?;
+
+        // Validate UID is not root
+        if uid == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Cannot modify root user slice"
+            ));
+        }
+
+        // Validate UID is not a system user (standard threshold is 1000)
+        if uid < 1000 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Cannot modify system user slice"
+            ));
+        }
+
+        // Verify user exists
+        if users::get_user_by_uid(uid).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("User with UID {} does not exist", uid)
+            ));
+        }
+
+        Ok(uid)
     } else {
         // Fallback to current user (for admin commands run directly as root)
         Ok(users::get_current_uid())
@@ -1197,6 +1225,235 @@ mod tests {
             let error_msg = format!("{}", e);
             assert!(error_msg.contains("exceeds maximum limit"),
                    "Should indicate input validation failure: {}", error_msg);
+        }
+    }
+
+    // UID Validation Tests
+    #[test]
+    fn test_get_calling_user_uid_rejects_root() {
+        // Test that UID 0 (root) is rejected with PermissionDenied
+        use std::env;
+
+        // Save original PKEXEC_UID if it exists
+        let original = env::var("PKEXEC_UID").ok();
+
+        // Set PKEXEC_UID to 0 (root)
+        env::set_var("PKEXEC_UID", "0");
+
+        let result = super::get_calling_user_uid();
+        assert!(result.is_err(), "Should reject root UID (0)");
+
+        if let Err(e) = result {
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied,
+                      "Should return PermissionDenied error kind");
+            let error_msg = format!("{}", e);
+            assert!(error_msg.contains("Cannot modify root user slice"),
+                   "Error should mention root user: {}", error_msg);
+        }
+
+        // Restore original PKEXEC_UID or remove it
+        if let Some(val) = original {
+            env::set_var("PKEXEC_UID", val);
+        } else {
+            env::remove_var("PKEXEC_UID");
+        }
+    }
+
+    #[test]
+    fn test_get_calling_user_uid_rejects_system_users() {
+        // Test that UIDs < 1000 are rejected as system users
+        use std::env;
+
+        // Save original PKEXEC_UID if it exists
+        let original = env::var("PKEXEC_UID").ok();
+
+        // Test various system user UIDs
+        let system_uids = vec![1, 10, 100, 500, 999];
+
+        for uid in system_uids {
+            env::set_var("PKEXEC_UID", uid.to_string());
+
+            let result = super::get_calling_user_uid();
+            assert!(result.is_err(), "Should reject system UID {}", uid);
+
+            if let Err(e) = result {
+                assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied,
+                          "Should return PermissionDenied for UID {}", uid);
+                let error_msg = format!("{}", e);
+                assert!(error_msg.contains("Cannot modify system user slice"),
+                       "Error should mention system user for UID {}: {}", uid, error_msg);
+            }
+        }
+
+        // Restore original PKEXEC_UID or remove it
+        if let Some(val) = original {
+            env::set_var("PKEXEC_UID", val);
+        } else {
+            env::remove_var("PKEXEC_UID");
+        }
+    }
+
+    #[test]
+    fn test_get_calling_user_uid_accepts_valid_users() {
+        // Test that UIDs >= 1000 for existing users work
+        use std::env;
+
+        // Save original PKEXEC_UID if it exists
+        let original = env::var("PKEXEC_UID").ok();
+
+        // Get current user's UID (which should be valid)
+        let current_uid = users::get_current_uid();
+
+        // Only test if current user has UID >= 1000
+        if current_uid >= 1000 {
+            env::set_var("PKEXEC_UID", current_uid.to_string());
+
+            let result = super::get_calling_user_uid();
+            assert!(result.is_ok(), "Should accept valid UID {}", current_uid);
+
+            if let Ok(uid) = result {
+                assert_eq!(uid, current_uid, "Should return the correct UID");
+            }
+        }
+
+        // Restore original PKEXEC_UID or remove it
+        if let Some(val) = original {
+            env::set_var("PKEXEC_UID", val);
+        } else {
+            env::remove_var("PKEXEC_UID");
+        }
+    }
+
+    #[test]
+    fn test_get_calling_user_uid_rejects_nonexistent_users() {
+        // Test that non-existent UIDs are rejected
+        use std::env;
+
+        // Save original PKEXEC_UID if it exists
+        let original = env::var("PKEXEC_UID").ok();
+
+        // Use a very high UID that's unlikely to exist
+        // Most systems don't have UIDs this high
+        let nonexistent_uid = 999999u32;
+
+        // Verify this UID doesn't actually exist on the system
+        if users::get_user_by_uid(nonexistent_uid).is_none() {
+            env::set_var("PKEXEC_UID", nonexistent_uid.to_string());
+
+            let result = super::get_calling_user_uid();
+            assert!(result.is_err(), "Should reject non-existent UID {}", nonexistent_uid);
+
+            if let Err(e) = result {
+                assert_eq!(e.kind(), std::io::ErrorKind::NotFound,
+                          "Should return NotFound error kind");
+                let error_msg = format!("{}", e);
+                assert!(error_msg.contains("does not exist"),
+                       "Error should mention user doesn't exist: {}", error_msg);
+                assert!(error_msg.contains(&nonexistent_uid.to_string()),
+                       "Error should include the UID: {}", error_msg);
+            }
+        }
+
+        // Restore original PKEXEC_UID or remove it
+        if let Some(val) = original {
+            env::set_var("PKEXEC_UID", val);
+        } else {
+            env::remove_var("PKEXEC_UID");
+        }
+    }
+
+    #[test]
+    fn test_get_calling_user_uid_rejects_invalid_format() {
+        // Test that invalid UID formats are rejected
+        use std::env;
+
+        // Save original PKEXEC_UID if it exists
+        let original = env::var("PKEXEC_UID").ok();
+
+        // Test various invalid formats
+        let invalid_formats = vec!["abc", "-1", "1.5", "", "not_a_number", "12345abc"];
+
+        for invalid in invalid_formats {
+            env::set_var("PKEXEC_UID", invalid);
+
+            let result = super::get_calling_user_uid();
+            assert!(result.is_err(), "Should reject invalid format: {}", invalid);
+
+            if let Err(e) = result {
+                assert_eq!(e.kind(), std::io::ErrorKind::InvalidData,
+                          "Should return InvalidData for format: {}", invalid);
+                let error_msg = format!("{}", e);
+                assert!(error_msg.contains("Invalid PKEXEC_UID"),
+                       "Error should mention invalid PKEXEC_UID for: {}", invalid);
+            }
+        }
+
+        // Restore original PKEXEC_UID or remove it
+        if let Some(val) = original {
+            env::set_var("PKEXEC_UID", val);
+        } else {
+            env::remove_var("PKEXEC_UID");
+        }
+    }
+
+    #[test]
+    fn test_get_calling_user_uid_boundary_values() {
+        // Test boundary values around the 1000 threshold
+        use std::env;
+
+        // Save original PKEXEC_UID if it exists
+        let original = env::var("PKEXEC_UID").ok();
+
+        // Test UID 999 (should fail - system user)
+        env::set_var("PKEXEC_UID", "999");
+        let result = super::get_calling_user_uid();
+        assert!(result.is_err(), "Should reject UID 999 (system user)");
+        if let Err(e) = result {
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+        }
+
+        // Test UID 1000 (should pass validation checks, may fail on existence)
+        env::set_var("PKEXEC_UID", "1000");
+        let result = super::get_calling_user_uid();
+        // Result depends on whether UID 1000 exists on the system
+        if result.is_err() {
+            if let Err(e) = result {
+                // Should either pass or fail with NotFound (not PermissionDenied)
+                assert_ne!(e.kind(), std::io::ErrorKind::PermissionDenied,
+                          "UID 1000 should pass validation checks (not be rejected as system user)");
+            }
+        }
+
+        // Restore original PKEXEC_UID or remove it
+        if let Some(val) = original {
+            env::set_var("PKEXEC_UID", val);
+        } else {
+            env::remove_var("PKEXEC_UID");
+        }
+    }
+
+    #[test]
+    fn test_get_calling_user_uid_without_pkexec_env() {
+        // Test that when PKEXEC_UID is not set, it falls back to current user
+        use std::env;
+
+        // Save original PKEXEC_UID if it exists
+        let original = env::var("PKEXEC_UID").ok();
+
+        // Remove PKEXEC_UID
+        env::remove_var("PKEXEC_UID");
+
+        let result = super::get_calling_user_uid();
+        assert!(result.is_ok(), "Should succeed when PKEXEC_UID is not set");
+
+        if let Ok(uid) = result {
+            let current_uid = users::get_current_uid();
+            assert_eq!(uid, current_uid, "Should return current user's UID");
+        }
+
+        // Restore original PKEXEC_UID if it existed
+        if let Some(val) = original {
+            env::set_var("PKEXEC_UID", val);
         }
     }
 }
