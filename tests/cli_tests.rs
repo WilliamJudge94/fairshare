@@ -290,3 +290,285 @@ fn test_admin_uninstall_mentions_daemon_reload() {
         );
     }
 }
+
+// ============================================================================
+// Task 2: Input Validation and Bounds Checking Tests
+// ============================================================================
+
+#[test]
+fn test_request_cpu_below_minimum() {
+    // Test that CPU value below minimum (0) is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "0", "--mem", "2"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with CPU=0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_request_cpu_above_maximum() {
+    // Test that CPU value above maximum (1001+) is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "2000", "--mem", "5"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with CPU=2000");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_request_mem_below_minimum() {
+    // Test that memory value below minimum (0) is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "4", "--mem", "0"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with mem=0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_request_mem_above_maximum() {
+    // Test that memory value above maximum (10001+) is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "4", "--mem", "20000"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with mem=20000");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_request_negative_cpu() {
+    // Test that negative CPU values are rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu=-1", "--mem=2"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with negative CPU");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Clap rejects negative values for unsigned types
+    assert!(stderr.contains("invalid") || stderr.contains("digit"),
+            "Expected validation error for negative value, got: {}", stderr);
+}
+
+#[test]
+fn test_request_negative_mem() {
+    // Test that negative memory values are rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu=4", "--mem=-5"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with negative mem");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Clap rejects negative values for unsigned types
+    assert!(stderr.contains("invalid") || stderr.contains("digit"),
+            "Expected validation error for negative value, got: {}", stderr);
+}
+
+#[test]
+fn test_request_minimum_valid_values() {
+    // Test that minimum valid values (1 CPU, 1 GB) are accepted
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "1", "--mem", "1"])
+        .output()
+        .expect("Failed to execute command");
+
+    // Should either succeed or fail with resource availability, but NOT validation
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() || stderr.contains("exceeds available") || stderr.contains("resource"),
+        "Expected validation to pass for minimum valid values (1, 1), got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_request_maximum_valid_values() {
+    // Test that maximum valid values (1000 CPU, 10000 GB) pass validation
+    // (may fail on resource availability, but should pass input validation)
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "1000", "--mem", "10000"])
+        .output()
+        .expect("Failed to execute command");
+
+    // Should either succeed or fail with resource availability, but NOT validation error
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() || stderr.contains("exceeds available") || stderr.contains("resource"),
+        "Expected validation to pass for maximum valid values (1000, 10000), got validation error: {}",
+        stderr
+    );
+
+    // Should NOT contain range validation errors
+    assert!(!stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
+            "Should pass validation but got range error: {}", stderr);
+}
+
+#[test]
+fn test_request_boundary_cpu_1() {
+    // Test lower boundary: CPU = 1 (minimum valid)
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "1", "--mem", "4"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("not in"), "CPU=1 should pass validation");
+}
+
+#[test]
+fn test_request_boundary_cpu_1000() {
+    // Test upper boundary: CPU = 1000 (maximum valid)
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "1000", "--mem", "4"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("not in 1..=1000"), "CPU=1000 should pass validation");
+}
+
+#[test]
+fn test_request_boundary_mem_1() {
+    // Test lower boundary: mem = 1 (minimum valid)
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "4", "--mem", "1"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("not in"), "mem=1 should pass validation");
+}
+
+#[test]
+fn test_request_boundary_mem_10000() {
+    // Test upper boundary: mem = 10000 (maximum valid)
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "4", "--mem", "10000"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("not in 1..=10000"), "mem=10000 should pass validation");
+}
+
+#[test]
+fn test_admin_setup_cpu_below_minimum() {
+    // Test that admin setup with CPU below minimum is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "admin", "setup", "--cpu", "0", "--mem", "2"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with CPU=0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_admin_setup_cpu_above_maximum() {
+    // Test that admin setup with CPU above maximum is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "admin", "setup", "--cpu", "2000", "--mem", "2"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with CPU=2000");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_admin_setup_mem_below_minimum() {
+    // Test that admin setup with memory below minimum is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "admin", "setup", "--cpu", "2", "--mem", "0"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with mem=0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_admin_setup_mem_above_maximum() {
+    // Test that admin setup with memory above maximum is rejected
+    let output = Command::new("cargo")
+        .args(["run", "--", "admin", "setup", "--cpu", "2", "--mem", "20000"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success(), "Expected command to fail with mem=20000");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not in") || stderr.contains("invalid"),
+            "Expected validation error message about range");
+}
+
+#[test]
+fn test_admin_setup_default_values_valid() {
+    // Test that default values for admin setup (1 CPU, 2 GB) pass validation
+    let output = Command::new("cargo")
+        .args(["run", "--", "admin", "setup"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Should not fail due to validation errors
+    // May fail due to permissions, but that's fine for this test
+    assert!(
+        output.status.success() || stderr.contains("Permission") || stderr.contains("permission") || stderr.contains("root"),
+        "Default values should pass validation, got: {}", stderr
+    );
+}
+
+#[test]
+fn test_admin_setup_minimum_valid_values() {
+    // Test that minimum valid values (1 CPU, 1 GB) pass validation for admin setup
+    let output = Command::new("cargo")
+        .args(["run", "--", "admin", "setup", "--cpu", "1", "--mem", "1"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Should not have validation range errors
+    assert!(
+        !stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
+        "Minimum valid values should pass validation, got: {}", stderr
+    );
+}
+
+#[test]
+fn test_admin_setup_maximum_valid_values() {
+    // Test that maximum valid values (1000 CPU, 10000 GB) pass validation for admin setup
+    let output = Command::new("cargo")
+        .args(["run", "--", "admin", "setup", "--cpu", "1000", "--mem", "10000"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Should not have validation range errors
+    assert!(
+        !stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
+        "Maximum valid values should pass validation, got: {}", stderr
+    );
+}

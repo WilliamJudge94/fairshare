@@ -1,4 +1,16 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, builder::RangedU64ValueParser};
+
+/// Maximum number of CPUs that can be requested
+pub const MAX_CPU: u32 = 1000;
+
+/// Maximum amount of memory (in GB) that can be requested
+pub const MAX_MEM: u32 = 10000;
+
+/// Minimum number of CPUs that must be requested
+pub const MIN_CPU: u32 = 1;
+
+/// Minimum amount of memory (in GB) that must be requested
+pub const MIN_MEM: u32 = 1;
 
 #[derive(Parser)]
 #[command(name = "fairshare", version, about = "Systemd-based resource manager for multi-user Linux systems")]
@@ -14,9 +26,11 @@ pub enum Commands {
 
     /// Request resources (e.g. --cpu 4 --mem 8)
     Request {
-        #[arg(long)]
+        /// Number of CPUs to request (1-1000)
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
         cpu: u32,
-        #[arg(long)]
+        /// Amount of memory in GB to request (1-10000)
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem: u32,
     },
 
@@ -37,9 +51,11 @@ pub enum Commands {
 pub enum AdminSubcommands {
     /// Setup global baseline for all users (default: 1 CPU, 2G RAM)
     Setup {
-        #[arg(long, default_value_t = 1)]
+        /// Default number of CPUs per user (1-1000)
+        #[arg(long, default_value_t = 1, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
         cpu: u32,
-        #[arg(long, default_value_t = 2)]
+        /// Default amount of memory per user in GB (1-10000)
+        #[arg(long, default_value_t = 2, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem: u32,
     },
 
