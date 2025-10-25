@@ -121,6 +121,7 @@ pub fn show_user_info() -> io::Result<()> {
         Command::new("systemctl")
             .arg("--user")
             .arg("show")
+            .arg("--")
             .arg("-.slice")
             .arg("-pMemoryMax")
             .arg("-pCPUQuota")
