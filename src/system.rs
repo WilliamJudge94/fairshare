@@ -3,6 +3,7 @@ use std::io;
 use sysinfo::System;
 use colored::*;
 use comfy_table::{Table, presets::UTF8_FULL, modifiers::UTF8_ROUND_CORNERS, Cell, Color};
+use users::{get_user_by_uid, uid_t};
 use crate::state;
 
 pub struct SystemTotals {
@@ -188,6 +189,12 @@ fn parse_mem_gb(mem: &str) -> f64 {
     }
 }
 
+/// Get username from UID, returns None if user doesn't exist
+fn get_username_from_uid(uid_str: &str) -> Option<String> {
+    let uid_num: uid_t = uid_str.parse().ok()?;
+    get_user_by_uid(uid_num).map(|user| user.name().to_string_lossy().into_owned())
+}
+
 pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
     let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
@@ -241,6 +248,7 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
             .load_preset(UTF8_FULL)
             .apply_modifier(UTF8_ROUND_CORNERS)
             .set_header(vec![
+                Cell::new("Username").fg(Color::Cyan),
                 Cell::new("UID").fg(Color::Cyan),
                 Cell::new("CPU Quota").fg(Color::Cyan),
                 Cell::new("CPUs").fg(Color::Cyan),
@@ -250,8 +258,11 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
         for a in allocations {
             let cpu_cores = a.cpu_quota / 100.0;
             let mem_gb = a.mem_bytes as f64 / 1_000_000_000.0;
+            let username = get_username_from_uid(&a.uid)
+                .unwrap_or_else(|| format!("({})", a.uid));
 
             user_table.add_row(vec![
+                Cell::new(username).fg(Color::White),
                 Cell::new(&a.uid).fg(Color::White),
                 Cell::new(format!("{:.1}%", a.cpu_quota)).fg(Color::Yellow),
                 Cell::new(format!("{:.2}", cpu_cores)).fg(Color::Yellow),
