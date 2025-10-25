@@ -24,14 +24,14 @@ The easiest way to install fairshare is using the installation script:
 
 ```bash
 # Download and run the installer
-curl -sSL https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/install.sh | sudo bash
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | sudo bash
 ```
 
 Or if you prefer to inspect the script first:
 
 ```bash
 # Download the installer
-wget https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/install.sh
+wget https://raw.github.com/WilliamJudge94/fairshare/main/install.sh
 
 # Review it
 cat install.sh
@@ -91,7 +91,7 @@ To remove fairshare from your system:
 
 ```bash
 # Using the uninstall script
-curl -sSL https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/uninstall.sh | sudo bash
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/uninstall.sh | sudo bash
 
 # Or if you have the repository
 sudo bash uninstall.sh
