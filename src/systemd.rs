@@ -449,4 +449,275 @@ mod tests {
         assert_eq!(cpu.checked_mul(100), Some(0));
         assert_eq!((mem as u64).checked_mul(1_000_000_000), Some(0));
     }
+
+    #[test]
+    fn test_set_user_limits_input_validation_cpu_exceeds_max() {
+        // Test that set_user_limits rejects CPU values exceeding MAX_CPU
+        use crate::cli::MAX_CPU;
+
+        let result = super::set_user_limits(MAX_CPU + 1, 2);
+        assert!(result.is_err(), "Should reject CPU exceeding MAX_CPU");
+
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            assert!(error_msg.contains("exceeds maximum limit"),
+                    "Error should mention exceeding limit: {}", error_msg);
+            assert!(error_msg.contains(&(MAX_CPU + 1).to_string()),
+                    "Error should contain the invalid CPU value: {}", error_msg);
+        }
+    }
+
+    #[test]
+    fn test_set_user_limits_input_validation_mem_exceeds_max() {
+        // Test that set_user_limits rejects memory values exceeding MAX_MEM
+        use crate::cli::MAX_MEM;
+
+        let result = super::set_user_limits(2, MAX_MEM + 1);
+        assert!(result.is_err(), "Should reject memory exceeding MAX_MEM");
+
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            assert!(error_msg.contains("exceeds maximum limit"),
+                    "Error should mention exceeding limit: {}", error_msg);
+            assert!(error_msg.contains(&(MAX_MEM + 1).to_string()),
+                    "Error should contain the invalid memory value: {}", error_msg);
+        }
+    }
+
+    #[test]
+    fn test_admin_setup_defaults_input_validation_cpu_exceeds_max() {
+        // Test that admin_setup_defaults rejects CPU values exceeding MAX_CPU
+        use crate::cli::MAX_CPU;
+
+        let result = super::admin_setup_defaults(MAX_CPU + 1, 2);
+        assert!(result.is_err(), "Should reject CPU exceeding MAX_CPU");
+
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            assert!(error_msg.contains("exceeds maximum limit"),
+                    "Error should mention exceeding limit: {}", error_msg);
+        }
+    }
+
+    #[test]
+    fn test_admin_setup_defaults_input_validation_mem_exceeds_max() {
+        // Test that admin_setup_defaults rejects memory values exceeding MAX_MEM
+        use crate::cli::MAX_MEM;
+
+        let result = super::admin_setup_defaults(2, MAX_MEM + 1);
+        assert!(result.is_err(), "Should reject memory exceeding MAX_MEM");
+
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            assert!(error_msg.contains("exceeds maximum limit"),
+                    "Error should mention exceeding limit: {}", error_msg);
+        }
+    }
+
+    #[test]
+    fn test_overflow_checked_mul_memory_conversion() {
+        // Test checked_mul for memory to bytes conversion
+
+        // Valid conversions
+        let conversions = vec![
+            (1u32, 1_000_000_000u64),
+            (2u32, 2_000_000_000u64),
+            (10u32, 10_000_000_000u64),
+            (100u32, 100_000_000_000u64),
+            (1000u32, 1_000_000_000_000u64),
+            (10000u32, 10_000_000_000_000u64),
+        ];
+
+        for (gb, expected_bytes) in conversions {
+            let result = (gb as u64).checked_mul(1_000_000_000);
+            assert!(result.is_some(), "Conversion of {} GB should not overflow", gb);
+            assert_eq!(result.unwrap(), expected_bytes,
+                      "Conversion of {} GB should equal {} bytes", gb, expected_bytes);
+        }
+    }
+
+    #[test]
+    fn test_overflow_checked_mul_cpu_quota() {
+        // Test checked_mul for CPU quota calculation
+
+        // Valid calculations
+        let calculations = vec![
+            (1u32, 100u32),
+            (2u32, 200u32),
+            (4u32, 400u32),
+            (10u32, 1000u32),
+            (100u32, 10000u32),
+            (1000u32, 100000u32),
+        ];
+
+        for (cpu, expected_quota) in calculations {
+            let result = cpu.checked_mul(100);
+            assert!(result.is_some(), "Quota calculation for {} CPU should not overflow", cpu);
+            assert_eq!(result.unwrap(), expected_quota,
+                      "Quota for {} CPU should equal {}", cpu, expected_quota);
+        }
+    }
+
+    #[test]
+    fn test_overflow_checked_mul_max_caps() {
+        // Test checked_mul for max caps calculation
+
+        // Valid calculations
+        let calculations = vec![
+            (1u32, 10u32),
+            (2u32, 20u32),
+            (4u32, 40u32),
+            (10u32, 100u32),
+            (100u32, 1000u32),
+            (1000u32, 10000u32),
+        ];
+
+        for (cpu, expected_cap) in calculations {
+            let result = cpu.checked_mul(10);
+            assert!(result.is_some(), "Max cap calculation for {} CPU should not overflow", cpu);
+            assert_eq!(result.unwrap(), expected_cap,
+                      "Max cap for {} CPU should equal {}", cpu, expected_cap);
+        }
+    }
+
+    #[test]
+    fn test_max_valid_cpu_quota_without_overflow() {
+        // Test that MAX_CPU can safely be converted to quota
+        use crate::cli::MAX_CPU;
+
+        let result = MAX_CPU.checked_mul(100);
+        assert!(result.is_some(), "MAX_CPU ({}) should not overflow when multiplied by 100", MAX_CPU);
+        assert_eq!(result.unwrap(), MAX_CPU as u32 * 100,
+                  "MAX_CPU quota should be {} * 100", MAX_CPU);
+    }
+
+    #[test]
+    fn test_max_valid_memory_conversion_without_overflow() {
+        // Test that MAX_MEM can safely be converted to bytes
+        use crate::cli::MAX_MEM;
+
+        let result = (MAX_MEM as u64).checked_mul(1_000_000_000);
+        assert!(result.is_some(), "MAX_MEM ({}) should not overflow when converted to bytes", MAX_MEM);
+        assert_eq!(result.unwrap(), MAX_MEM as u64 * 1_000_000_000,
+                  "MAX_MEM conversion should be {} * 1 billion", MAX_MEM);
+    }
+
+    #[test]
+    fn test_max_valid_cpu_cap_without_overflow() {
+        // Test that MAX_CPU can safely be used in max caps calculation
+        use crate::cli::MAX_CPU;
+
+        let result = MAX_CPU.checked_mul(10);
+        assert!(result.is_some(), "MAX_CPU ({}) should not overflow when multiplied by 10 for caps", MAX_CPU);
+        assert_eq!(result.unwrap(), MAX_CPU as u32 * 10,
+                  "MAX_CPU cap should be {} * 10", MAX_CPU);
+    }
+
+    #[test]
+    fn test_sequential_operations_dont_cause_overflow() {
+        // Test that multiple operations on max values don't accumulate overflow
+        use crate::cli::{MAX_CPU, MAX_MEM};
+
+        // Simulate full set_user_limits operation with MAX values
+        let cpu = MAX_CPU;
+        let mem = MAX_MEM;
+
+        let mem_bytes = (mem as u64).checked_mul(1_000_000_000);
+        assert!(mem_bytes.is_some());
+
+        let cpu_quota = cpu.checked_mul(100);
+        assert!(cpu_quota.is_some());
+
+        // Both operations should succeed without overflow
+        assert_eq!(mem_bytes.unwrap(), MAX_MEM as u64 * 1_000_000_000);
+        assert_eq!(cpu_quota.unwrap(), MAX_CPU as u32 * 100);
+    }
+
+    #[test]
+    fn test_sequential_admin_operations_dont_cause_overflow() {
+        // Test that multiple operations in admin_setup_defaults don't overflow
+        use crate::cli::{MAX_CPU, MAX_MEM};
+
+        // Simulate full admin_setup_defaults operation with MAX values
+        let cpu = MAX_CPU;
+        let mem = MAX_MEM;
+
+        // Memory conversion
+        let mem_bytes = (mem as u64).checked_mul(1_000_000_000);
+        assert!(mem_bytes.is_some());
+
+        // CPU quota
+        let cpu_quota = cpu.checked_mul(100);
+        assert!(cpu_quota.is_some());
+
+        // Max caps
+        let max_cpu_cap = cpu.checked_mul(10);
+        assert!(max_cpu_cap.is_some());
+
+        // All should succeed
+        assert_eq!(mem_bytes.unwrap(), MAX_MEM as u64 * 1_000_000_000);
+        assert_eq!(cpu_quota.unwrap(), MAX_CPU as u32 * 100);
+        assert_eq!(max_cpu_cap.unwrap(), MAX_CPU as u32 * 10);
+    }
+
+    #[test]
+    fn test_error_messages_are_informative() {
+        // Verify error messages contain useful debugging information
+        use crate::cli::MAX_CPU;
+
+        let invalid_cpu = MAX_CPU + 5;
+        let result = super::set_user_limits(invalid_cpu, 2);
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            // Check that error message includes:
+            // 1. The invalid value
+            assert!(error_msg.contains(&invalid_cpu.to_string()),
+                   "Error message should include the invalid value: {}", error_msg);
+            // 2. The limit
+            assert!(error_msg.contains(&MAX_CPU.to_string()),
+                   "Error message should include the max limit: {}", error_msg);
+            // 3. A description of what went wrong
+            assert!(error_msg.contains("exceeds"),
+                   "Error message should indicate exceeding: {}", error_msg);
+        }
+    }
+
+    #[test]
+    fn test_valid_edge_case_values_in_set_user_limits() {
+        // Test that minimum and maximum valid values are accepted
+        use crate::cli::{MAX_CPU, MAX_MEM};
+
+        // These should NOT error on input validation
+        // (they may fail on systemctl execution, but that's okay for this test)
+        let min_result = super::set_user_limits(1, 1);
+        // Just verify it doesn't error on validation
+        if let Err(e) = min_result {
+            let error_msg = format!("{}", e);
+            assert!(!error_msg.contains("exceeds maximum limit"),
+                   "Minimum values should not fail validation: {}", error_msg);
+        }
+
+        let max_result = super::set_user_limits(MAX_CPU, MAX_MEM);
+        // Just verify it doesn't error on validation
+        if let Err(e) = max_result {
+            let error_msg = format!("{}", e);
+            assert!(!error_msg.contains("exceeds maximum limit"),
+                   "Maximum valid values should not fail validation: {}", error_msg);
+        }
+    }
+
+    #[test]
+    fn test_u32_max_causes_proper_rejection() {
+        // Test that u32::MAX values are properly rejected by input validation
+        let result = super::set_user_limits(u32::MAX, 2);
+        assert!(result.is_err(), "u32::MAX should be rejected");
+
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            assert!(error_msg.contains("exceeds maximum limit"),
+                   "Should indicate input validation failure: {}", error_msg);
+        }
+    }
 }
