@@ -1,5 +1,7 @@
 use std::process::Command;
 use sysinfo::System;
+use colored::*;
+use comfy_table::{Table, presets::UTF8_FULL, modifiers::UTF8_ROUND_CORNERS, Cell, Color};
 
 pub struct SystemTotals {
     pub total_mem_gb: f64,
@@ -118,29 +120,75 @@ fn parse_mem_gb(mem: &str) -> f64 {
 pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
     let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
+    let available_cpu = totals.total_cpu as f64 - used_cpu;
+    let available_mem = totals.total_mem_gb - used_mem;
 
-    println!(
-        "System total: {:.2} GB RAM / {} CPUs",
-        totals.total_mem_gb, totals.total_cpu
-    );
-    println!(
-        "Allocated: {:.2} GB RAM / {:.2} CPUs",
-        used_mem, used_cpu
-    );
-    println!(
-        "Available: {:.2} GB RAM / {:.2} CPUs\n",
-        totals.total_mem_gb - used_mem,
-        totals.total_cpu as f64 - used_cpu
-    );
+    // System overview table
+    println!("{}", "╔═══════════════════════════════════════╗".bright_cyan());
+    println!("{}", "║      SYSTEM RESOURCE OVERVIEW         ║".bright_cyan().bold());
+    println!("{}", "╚═══════════════════════════════════════╝".bright_cyan());
+    println!();
 
-    println!("Per-user allocations:");
-    for a in allocations {
-        println!(
-            "  UID {} → {:.1}% CPU, {:.2} GB RAM",
-            a.uid,
-            a.cpu_quota,
-            a.mem_bytes as f64 / 1_000_000_000.0
-        );
+    let mut overview_table = Table::new();
+    overview_table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_header(vec![
+            Cell::new("Metric").fg(Color::Cyan),
+            Cell::new("CPUs").fg(Color::Cyan),
+            Cell::new("RAM (GB)").fg(Color::Cyan),
+        ]);
+
+    overview_table.add_row(vec![
+        Cell::new("Total").fg(Color::White),
+        Cell::new(format!("{}", totals.total_cpu)).fg(Color::White),
+        Cell::new(format!("{:.2}", totals.total_mem_gb)).fg(Color::White),
+    ]);
+
+    overview_table.add_row(vec![
+        Cell::new("Allocated").fg(Color::Yellow),
+        Cell::new(format!("{:.2}", used_cpu)).fg(Color::Yellow),
+        Cell::new(format!("{:.2}", used_mem)).fg(Color::Yellow),
+    ]);
+
+    overview_table.add_row(vec![
+        Cell::new("Available").fg(Color::Green),
+        Cell::new(format!("{:.2}", available_cpu)).fg(Color::Green),
+        Cell::new(format!("{:.2}", available_mem)).fg(Color::Green),
+    ]);
+
+    println!("{}", overview_table);
+    println!();
+
+    // Per-user allocations table
+    if !allocations.is_empty() {
+        println!("{}", "Per-User Allocations:".bright_cyan().bold());
+        println!();
+
+        let mut user_table = Table::new();
+        user_table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .set_header(vec![
+                Cell::new("UID").fg(Color::Cyan),
+                Cell::new("CPU Quota").fg(Color::Cyan),
+                Cell::new("CPUs").fg(Color::Cyan),
+                Cell::new("RAM (GB)").fg(Color::Cyan),
+            ]);
+
+        for a in allocations {
+            let cpu_cores = a.cpu_quota / 100.0;
+            let mem_gb = a.mem_bytes as f64 / 1_000_000_000.0;
+
+            user_table.add_row(vec![
+                Cell::new(&a.uid).fg(Color::White),
+                Cell::new(format!("{:.1}%", a.cpu_quota)).fg(Color::Yellow),
+                Cell::new(format!("{:.2}", cpu_cores)).fg(Color::Yellow),
+                Cell::new(format!("{:.2}", mem_gb)).fg(Color::Yellow),
+            ]);
+        }
+
+        println!("{}", user_table);
     }
 }
 

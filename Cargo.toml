@@ -10,6 +10,8 @@ toml = "0.8"
 sysinfo = "0.30"
 humansize = "2.1"
 users = "0.11"
+colored = "2.1"
+comfy-table = "7.1"
 
 [dev-dependencies]
 tempfile = "3.8"

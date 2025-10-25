@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::fs;
 use std::path::Path;
 use users;
+use colored::*;
 
 pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     let uid = users::get_current_uid();
@@ -69,6 +70,9 @@ pub fn release_user_limits() -> io::Result<()> {
 
 pub fn show_user_info() -> io::Result<()> {
     let uid = users::get_current_uid();
+    let username = users::get_current_username()
+        .and_then(|os_str| os_str.into_string().ok())
+        .unwrap_or_else(|| "unknown".to_string());
 
     let output = if uid == 0 {
         // Root user: show system-wide user slice
@@ -79,6 +83,8 @@ pub fn show_user_info() -> io::Result<()> {
             .arg("MemoryMax")
             .arg("-p")
             .arg("CPUQuota")
+            .arg("-p")
+            .arg("CPUQuotaPerSecUSec")
             .output()?
     } else {
         // Regular user: show their own user session
@@ -88,10 +94,39 @@ pub fn show_user_info() -> io::Result<()> {
             .arg("-.slice")
             .arg("-pMemoryMax")
             .arg("-pCPUQuota")
+            .arg("-pCPUQuotaPerSecUSec")
             .output()?
     };
 
-    println!("{}", String::from_utf8_lossy(&output.stdout));
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut cpu_quota = "Not set".to_string();
+    let mut mem_max = "Not set".to_string();
+
+    for line in stdout_str.lines() {
+        if let Some(value) = line.strip_prefix("CPUQuotaPerSecUSec=") {
+            if let Some(sec_str) = value.strip_suffix('s') {
+                if let Ok(seconds) = sec_str.parse::<f64>() {
+                    cpu_quota = format!("{:.1}% ({:.2} CPUs)", seconds * 100.0, seconds);
+                }
+            }
+        } else if let Some(value) = line.strip_prefix("MemoryMax=") {
+            if let Ok(bytes) = value.parse::<u64>() {
+                let gb = bytes as f64 / 1_000_000_000.0;
+                mem_max = format!("{:.2} GB", gb);
+            }
+        }
+    }
+
+    println!("{}", "╔═══════════════════════════════════════╗".bright_cyan());
+    println!("{}", "║       USER RESOURCE ALLOCATION        ║".bright_cyan().bold());
+    println!("{}", "╚═══════════════════════════════════════╝".bright_cyan());
+    println!();
+    println!("{} {}", "User:".bright_white().bold(), username.bright_yellow());
+    println!("{} {}", "UID:".bright_white().bold(), uid.to_string().bright_yellow());
+    println!();
+    println!("{} {}", "CPU Quota:".bright_white().bold(), cpu_quota.green());
+    println!("{} {}", "Memory Max:".bright_white().bold(), mem_max.green());
+
     Ok(())
 }
 
@@ -111,10 +146,10 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
         cpu * 100, mem_bytes
     )?;
 
-    println!("✔ Created {}", conf_path.display());
+    println!("{} Created {}", "✓".green().bold(), conf_path.display().to_string().bright_white());
 
     Command::new("systemctl").arg("daemon-reload").status()?;
-    println!("✔ Reloaded systemd daemon");
+    println!("{} {}", "✓".green().bold(), "Reloaded systemd daemon".bright_white());
 
     fs::create_dir_all("/etc/fairshare")?;
     let mut policy = fs::File::create("/etc/fairshare/policy.toml")?;
@@ -123,7 +158,7 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
         "[defaults]\ncpu = {}\nmem = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
         cpu, mem, cpu * 10, mem
     )?;
-    println!("✔ Created /etc/fairshare/policy.toml");
+    println!("{} {}", "✓".green().bold(), "Created /etc/fairshare/policy.toml".bright_white());
 
     Ok(())
 }

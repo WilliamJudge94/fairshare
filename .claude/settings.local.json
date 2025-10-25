@@ -17,7 +17,8 @@
       "Bash(fairshare status:*)",
       "Bash(fairshare release:*)",
       "Bash(su - testuser -c \"fairshare request --cpu 3 --mem 2\":*)",
-      "Bash(su - testuser -c \"fairshare info\")"
+      "Bash(su - testuser -c \"fairshare info\")",
+      "Bash(cargo tree:*)"
     ],
     "deny": [],
     "ask": []

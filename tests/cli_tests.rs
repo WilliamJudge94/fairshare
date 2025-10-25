@@ -36,8 +36,8 @@ fn test_status_command() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Check for expected output format
-    assert!(stdout.contains("System total") || stdout.contains("GB RAM"));
+    // Check for expected output format (new table-based output)
+    assert!(stdout.contains("SYSTEM RESOURCE OVERVIEW") || stdout.contains("RAM (GB)") || stdout.contains("CPUs"));
 }
 
 #[test]
@@ -51,11 +51,12 @@ fn test_info_command() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    // Should contain either success output or an error message
+    // Should contain either success output (new formatted output) or an error message
     assert!(
-        stdout.contains("MemoryMax") ||
+        stdout.contains("USER RESOURCE ALLOCATION") ||
+        stdout.contains("CPU Quota") ||
+        stdout.contains("Memory Max") ||
         stderr.contains("Failed") ||
-        stdout.contains("MemoryMax") ||
         output.status.success()
     );
 }
