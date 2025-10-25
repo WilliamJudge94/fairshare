@@ -18,29 +18,64 @@ fairshare allocates resources fairly across all users:
 
 ## Installation
 
-### Quick Start
+### Quick Install (Recommended)
+
+The easiest way to install fairshare is using the installation script:
+
+```bash
+# Download and run the installer
+curl -sSL https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/install.sh | sudo bash
+```
+
+Or if you prefer to inspect the script first:
+
+```bash
+# Download the installer
+wget https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/install.sh
+
+# Review it
+cat install.sh
+
+# Run it
+sudo bash install.sh
+```
+
+The installer will:
+- Download the latest release binary for your architecture
+- Install the binary and wrapper script
+- Set up PolicyKit policies
+- Configure default resource limits (1 CPU core, 2GB RAM per user)
+
+![Admin Setup](static/root-admin-setup.png)
+
+### Build from Source
+
+If you prefer to build from source or are developing fairshare:
 
 ```bash
 # 1. Build the release binary
 cargo build --release
 
-# 2. Install binary and wrapper (requires sudo)
-sudo make release
-
-# 3. Setup admin defaults and PolicyKit policies (REQUIRED)
-sudo fairshare admin setup --cpu 1 --mem 2
-
-# 4. Now regular users can use fairshare without sudo
-fairshare status
+# 2. Run the installer (it will detect the local build)
+sudo bash install.sh
 ```
 
-![Admin Setup](static/root-admin-setup.png)
+Alternatively, use the Makefile for manual installation:
+
+```bash
+# Build and install binary and wrapper
+cargo build --release
+sudo make release
+
+# Setup admin defaults and PolicyKit policies (REQUIRED)
+sudo fairshare admin setup --cpu 1 --mem 2
+```
 
 ### What Gets Installed
 
 - **`/usr/local/bin/fairshare`** - Wrapper script (user-facing command)
 - **`/usr/local/libexec/fairshare-bin`** - Real binary (internal use only)
-- **PolicyKit policies** (via `admin setup`) - Allow passwordless execution for active users
+- **PolicyKit policies** - Allow passwordless execution for active users
 - **Systemd configuration** - Default resource limits for all user slices
 
 The wrapper script automatically detects whether you're running an admin command (requires `sudo`) or a regular user command (automatically uses `pkexec`).
@@ -48,7 +83,22 @@ The wrapper script automatically detects whether you're running an admin command
 ### Requirements
 - **Linux** with systemd (including user session support)
 - **PolicyKit (polkit)** for privilege escalation
-- **Rust 1.70+** (only needed for building)
+- **Rust 1.70+** (only needed for building from source)
+
+### Uninstall
+
+To remove fairshare from your system:
+
+```bash
+# Using the uninstall script
+curl -sSL https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/uninstall.sh | sudo bash
+
+# Or if you have the repository
+sudo bash uninstall.sh
+
+# Or manually
+sudo fairshare admin uninstall --force
+```
 
 ## Usage Guide
 
@@ -156,7 +206,10 @@ This installs the PolicyKit policies that allow active users to run fairshare co
 ### Wrapper not found or binary not found
 If you get "command not found" errors, ensure the installation completed:
 ```bash
-# Reinstall wrapper and binary
+# Reinstall using the install script
+sudo bash install.sh
+
+# Or if building from source
 sudo make release
 
 # Verify installation
