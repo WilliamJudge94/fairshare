@@ -1,7 +1,6 @@
 mod cli;
 mod system;
 mod systemd;
-mod state;
 
 use clap::Parser;
 use cli::{Cli, Commands, AdminSubcommands};
