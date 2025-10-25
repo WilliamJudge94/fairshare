@@ -6,12 +6,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **fairshare** is a Rust-based systemd resource manager for multi-user Linux systems. It provides fair CPU and memory allocation management using systemd user slices, allowing users to request resources dynamically while preventing over-allocation.
 
+## Installation
+
+### Building and Installing
+
+```bash
+# Build release binary
+cargo build --release
+
+# Install wrapper and binary (requires sudo)
+sudo make release
+
+# Setup admin defaults and PolicyKit policies (REQUIRED for user commands)
+sudo fairshare admin setup --cpu 1 --mem 2
+```
+
+### Installation Paths
+
+- **Wrapper script**: `/usr/local/bin/fairshare` (what users run)
+- **Real binary**: `/usr/local/libexec/fairshare-bin` (called by wrapper)
+- **PolicyKit policies**: Installed via `admin setup` command
+- **Systemd configuration**: `/etc/systemd/system/user-.slice.d/00-defaults.conf`
+
+The wrapper script auto-detects the binary location, supporting both:
+- Package installation: `/usr/libexec/fairshare-bin`
+- Local installation: `/usr/local/libexec/fairshare-bin`
+
 ## Development Commands
 
 ### Building
 - **Debug build**: `cargo build`
 - **Release build**: `cargo build --release`
-- **Install release binary**: `make release` (copies to `/usr/local/bin/fairshare`)
+- **Install wrapper and binary**: `sudo make release` (installs to `/usr/local/bin/fairshare` and `/usr/local/libexec/fairshare-bin`)
 
 ### Testing
 - **Run all tests**: `cargo test`
@@ -27,15 +53,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Running
 - **Show help**: `cargo run -- --help`
-- **Show status**: `pkexec fairshare status`
-- **Request resources**: `pkexec fairshare request --cpu 4 --mem 8`
-- **Show user info**: `pkexec fairshare info`
-- **Release resources**: `pkexec fairshare release`
+- **Show status**: `fairshare status` (wrapper handles pkexec automatically)
+- **Request resources**: `fairshare request --cpu 4 --mem 8`
+- **Show user info**: `fairshare info`
+- **Release resources**: `fairshare release`
 - **Admin setup** (requires root): `sudo fairshare admin setup --cpu 1 --mem 2`
 
-**Note**: Regular user commands use `pkexec` for privilege escalation via PolicyKit. Admin commands require `sudo`.
+**Note**: Regular user commands automatically use pkexec via the wrapper script at `/usr/local/bin/fairshare`. The real binary is at `/usr/local/libexec/fairshare-bin`. Admin commands require `sudo`.
 
 ## Architecture Overview
+
+### Wrapper Architecture
+
+The user-facing `fairshare` command is a shell script wrapper that:
+1. Auto-detects binary location (supports package and local installation)
+2. Detects admin commands (first arg is "admin") → executes directly (requires sudo)
+3. Regular user commands → transparently calls `pkexec /usr/local/libexec/fairshare-bin`
+4. Provides a simple UX without requiring users to type `pkexec`
+
+This pattern is used by many system tools for privilege escalation (e.g., `systemctl`, `nmcli`).
 
 ### Module Structure
 
@@ -50,9 +86,10 @@ The codebase is organized into four main modules:
 
 ### Core Data Flow
 
-1. **Command Parsing** (`cli.rs`): Clap validates input bounds before execution
-2. **Resource Validation** (`system.rs`): Checks if requested resources are available
-3. **Systemd Configuration** (`systemd.rs`): Applies limits via `systemctl set-property` or reverts via `systemctl revert`
+1. **Wrapper Detection** (shell script): Detects command type and invokes pkexec for user commands
+2. **Command Parsing** (`cli.rs`): Clap validates input bounds before execution
+3. **Resource Validation** (`system.rs`): Checks if requested resources are available
+4. **Systemd Configuration** (`systemd.rs`): Applies limits via `systemctl set-property` or reverts via `systemctl revert`
 
 ### Key Functions
 
@@ -137,7 +174,7 @@ Configured in `src/cli.rs`:
 The tool uses **pkexec** (PolicyKit) for privilege escalation, allowing regular users to modify their own resource limits without full root access:
 
 **Regular users**:
-- Run commands via `pkexec fairshare ...` (e.g., `pkexec fairshare request --cpu 4 --mem 8`)
+- Run commands via wrapper: `fairshare status` (wrapper transparently calls `pkexec /usr/local/libexec/fairshare-bin status`)
 - pkexec grants root privileges but preserves the calling user's UID in `PKEXEC_UID` environment variable
 - Commands modify system-level user slices: `systemctl set-property user-{UID}.slice`
 - PolicyKit policies allow users to manage their own resources without entering admin password
@@ -148,6 +185,16 @@ The tool uses **pkexec** (PolicyKit) for privilege escalation, allowing regular 
 - Create/modify global defaults in `/etc/systemd/system/`
 - Install PolicyKit policies in `/usr/share/polkit-1/actions/` and `/etc/polkit-1/rules.d/`
 - Can affect all user sessions
+
+### Wrapper Script Pattern
+
+To provide a seamless user experience, fairshare uses a wrapper script pattern:
+- **User-facing command**: `/usr/local/bin/fairshare` (shell script)
+- **Real binary**: `/usr/local/libexec/fairshare-bin` (Rust executable)
+- **Wrapper transparently invokes pkexec** for regular commands
+- **Admin commands bypass pkexec** (user must use sudo)
+
+This allows users to type `fairshare status` instead of `pkexec fairshare status`.
 
 ### Resource Calculation and Delta-Based Checking
 
@@ -191,12 +238,13 @@ The tool uses these `systemctl` commands (when run via pkexec, these operate at 
 ## Common Issues
 
 ### Systemd Commands Fail
-- Ensure you're using `pkexec` for user commands: `pkexec fairshare status`
+- Ensure the wrapper script is installed: `which fairshare` should show `/usr/local/bin/fairshare`
+- Ensure the binary is installed: `ls -l /usr/local/libexec/fairshare-bin`
 - Admin operations require `sudo`: `sudo fairshare admin setup --cpu 1 --mem 2`
 - PolicyKit policies must be installed (automatic during `admin setup`)
 
 ### Resource Allocation Fails
-- Check available resources: `pkexec fairshare status`
+- Check available resources: `fairshare status`
 - Remember: The system uses delta-based checking, so you can modify your existing allocation
 - Requests may fail if the net increase exceeds available resources
 

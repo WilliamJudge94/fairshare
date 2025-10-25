@@ -18,18 +18,32 @@ fairshare allocates resources fairly across all users:
 
 ## Installation
 
-### Quick Install (Recommended)
-```bash
-make release
-```
-This builds the release binary and installs it to `/usr/local/bin/fairshare`.
+### Quick Start
 
-### Manual Build
-If you prefer to build manually:
 ```bash
+# 1. Build the release binary
 cargo build --release
-sudo cp target/release/fairshare /usr/local/bin/
+
+# 2. Install binary and wrapper (requires sudo)
+sudo make release
+
+# 3. Setup admin defaults and PolicyKit policies (REQUIRED)
+sudo fairshare admin setup --cpu 1 --mem 2
+
+# 4. Now regular users can use fairshare without sudo
+fairshare status
 ```
+
+![Admin Setup](static/root-admin-setup.png)
+
+### What Gets Installed
+
+- **`/usr/local/bin/fairshare`** - Wrapper script (user-facing command)
+- **`/usr/local/libexec/fairshare-bin`** - Real binary (internal use only)
+- **PolicyKit policies** (via `admin setup`) - Allow passwordless execution for active users
+- **Systemd configuration** - Default resource limits for all user slices
+
+The wrapper script automatically detects whether you're running an admin command (requires `sudo`) or a regular user command (automatically uses `pkexec`).
 
 ### Requirements
 - **Linux** with systemd (including user session support)
@@ -38,29 +52,32 @@ sudo cp target/release/fairshare /usr/local/bin/
 
 ## Usage Guide
 
-### User Commands
+### User Commands (No sudo required)
 
-All user commands require `pkexec` for privilege escalation via PolicyKit. This allows you to manage your own resources without needing full administrator access.
+Regular users can manage their own resource allocations. The wrapper script automatically handles privilege escalation via PolicyKit, so you don't need to type `pkexec` or `sudo`.
 
 #### 1. Check System Status
 See how much CPU and memory is available and what each user is currently using.
 ```bash
-pkexec fairshare status
+fairshare status
 ```
+
+![User Status](static/user-status.png)
 
 #### 2. Check Your Current Allocation
 View how much CPU and memory your user session has access to.
 ```bash
-pkexec fairshare info
+fairshare info
 ```
 
 #### 3. Request Resources
 Ask for CPU and memory resources. The system uses **smart delta-based checking** - it only needs enough free resources to cover the increase from your current allocation.
 
 ```bash
-pkexec fairshare request --cpu 4 --mem 8
+fairshare request --cpu 4 --mem 8
 ```
-This requests 4 CPU cores and 8GB of RAM.
+
+![User Request](static/user-request.png)
 
 **Smart Allocation Example:**
 - You currently have: 9GB RAM allocated
@@ -75,18 +92,23 @@ This requests 4 CPU cores and 8GB of RAM.
 #### 4. Release Resources
 Return your resources to the system and revert to the default allocation (1 CPU core, 2GB RAM).
 ```bash
-pkexec fairshare release
+fairshare release
 ```
 
-### Administrator Commands
+![User Release](static/user-release.png)
 
-> **Note:** These commands require root privileges (`sudo`)
+### Administrator Commands (Requires sudo)
+
+> **Note:** Admin commands must be run with `sudo`
 
 #### Set Default Limits
-Configure the default CPU and memory allocation for all users when they first log in.
+Configure the default CPU and memory allocation for all users when they first log in. This also installs PolicyKit policies required for passwordless user operations.
+
 ```bash
 sudo fairshare admin setup --cpu 1 --mem 2
 ```
+
+![Admin Setup](static/root-admin-setup.png)
 
 #### Uninstall fairshare
 Remove fairshare from your system and revert to standard Linux resource management.
@@ -95,6 +117,24 @@ sudo fairshare admin uninstall --force
 ```
 
 ## How It Works
+
+### Architecture
+
+fairshare uses a wrapper script pattern to provide a seamless user experience:
+
+1. **User types:** `fairshare status`
+2. **Wrapper detects:** Not an admin command
+3. **Wrapper calls:** `pkexec /usr/local/libexec/fairshare-bin status`
+4. **PolicyKit checks:** User is active → allow without password
+5. **Binary executes:** Reads `PKEXEC_UID` to identify calling user
+6. **systemd query:** Only queries/modifies the calling user's slice
+
+This architecture ensures:
+- **Simple UX** - No `pkexec` in commands
+- **Security** - Users can only manage their own resources
+- **Proper privilege separation** - Wrapper handles escalation transparently
+
+### Resource Management
 
 fairshare uses systemd as the authoritative source of truth for all resource allocations:
 
@@ -106,25 +146,33 @@ fairshare uses systemd as the authoritative source of truth for all resource all
 ## Troubleshooting
 
 ### Commands fail with "authentication required" or "permission denied"
-Make sure you're using `pkexec` for user commands:
-```bash
-pkexec fairshare status
-```
-
-If PolicyKit authentication keeps prompting, verify that admin setup completed successfully:
+If PolicyKit authentication keeps prompting for password, verify that admin setup completed successfully:
 ```bash
 sudo fairshare admin setup --cpu 1 --mem 2
+```
+
+This installs the PolicyKit policies that allow active users to run fairshare commands without entering a password.
+
+### Wrapper not found or binary not found
+If you get "command not found" errors, ensure the installation completed:
+```bash
+# Reinstall wrapper and binary
+sudo make release
+
+# Verify installation
+which fairshare              # Should show /usr/local/bin/fairshare
+ls -l /usr/local/libexec/fairshare-bin  # Should exist
 ```
 
 ### Resource request fails even though resources seem available
 Remember that fairshare uses delta-based checking. Check your current allocation:
 ```bash
-pkexec fairshare info
+fairshare info
 ```
 
 Then check system-wide availability:
 ```bash
-pkexec fairshare status
+fairshare status
 ```
 
 Your request fails only if the **net increase** exceeds available resources.
