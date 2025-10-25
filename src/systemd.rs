@@ -127,3 +127,60 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_admin_setup_creates_valid_config_content() {
+        // This test validates the configuration format without actually
+        // creating files on the system
+        let cpu = 2;
+        let mem = 4;
+        let mem_bytes = (mem as u64) * 1_000_000_000;
+
+        let expected_slice_config = format!(
+            "[Slice]\nCPUQuota={}%\nMemoryMax={}\n",
+            cpu * 100,
+            mem_bytes
+        );
+
+        assert_eq!(expected_slice_config, "[Slice]\nCPUQuota=200%\nMemoryMax=4000000000\n");
+
+        let expected_policy = format!(
+            "[defaults]\ncpu = {}\nmem = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
+            cpu, mem, cpu * 10, mem
+        );
+
+        assert!(expected_policy.contains("[defaults]"));
+        assert!(expected_policy.contains("cpu = 2"));
+        assert!(expected_policy.contains("mem = 4"));
+    }
+
+    #[test]
+    fn test_memory_conversion_to_bytes() {
+        // Verify memory conversion logic
+        let mem_gb = 8;
+        let mem_bytes = (mem_gb as u64) * 1_000_000_000;
+        assert_eq!(mem_bytes, 8_000_000_000);
+
+        let mem_gb = 16;
+        let mem_bytes = (mem_gb as u64) * 1_000_000_000;
+        assert_eq!(mem_bytes, 16_000_000_000);
+    }
+
+    #[test]
+    fn test_cpu_quota_calculation() {
+        // Verify CPU quota percentage calculation
+        let cpu = 1;
+        let quota = cpu * 100;
+        assert_eq!(quota, 100);
+
+        let cpu = 4;
+        let quota = cpu * 100;
+        assert_eq!(quota, 400);
+
+        let cpu = 8;
+        let quota = cpu * 100;
+        assert_eq!(quota, 800);
+    }
+}

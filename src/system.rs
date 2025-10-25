@@ -143,3 +143,142 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_mem_gb_with_gigabytes() {
+        assert_eq!(parse_mem_gb("4G"), 4.0);
+        assert_eq!(parse_mem_gb("8g"), 8.0);
+        assert_eq!(parse_mem_gb("16G"), 16.0);
+    }
+
+    #[test]
+    fn test_parse_mem_gb_with_megabytes() {
+        assert_eq!(parse_mem_gb("1024M"), 1.0);
+        assert_eq!(parse_mem_gb("2048m"), 2.0);
+        assert_eq!(parse_mem_gb("512M"), 0.5);
+    }
+
+    #[test]
+    fn test_parse_mem_gb_plain_number() {
+        assert_eq!(parse_mem_gb("4"), 4.0);
+        assert_eq!(parse_mem_gb("8.5"), 8.5);
+    }
+
+    #[test]
+    fn test_parse_mem_gb_invalid() {
+        assert_eq!(parse_mem_gb("invalid"), 0.0);
+        assert_eq!(parse_mem_gb(""), 0.0);
+    }
+
+    #[test]
+    fn test_check_request_sufficient_resources() {
+        let totals = SystemTotals {
+            total_mem_gb: 16.0,
+            total_cpu: 8,
+        };
+        let allocations = vec![
+            UserAlloc {
+                uid: "1000".to_string(),
+                cpu_quota: 200.0,  // 2 CPUs
+                mem_bytes: 4_000_000_000,  // 4 GB
+            },
+        ];
+
+        // Request 2 CPUs and 4 GB - should be allowed
+        assert!(check_request(&totals, &allocations, 2, "4"));
+    }
+
+    #[test]
+    fn test_check_request_insufficient_cpu() {
+        let totals = SystemTotals {
+            total_mem_gb: 16.0,
+            total_cpu: 8,
+        };
+        let allocations = vec![
+            UserAlloc {
+                uid: "1000".to_string(),
+                cpu_quota: 600.0,  // 6 CPUs
+                mem_bytes: 4_000_000_000,  // 4 GB
+            },
+        ];
+
+        // Request 4 CPUs when only 2 are available - should fail
+        assert!(!check_request(&totals, &allocations, 4, "4"));
+    }
+
+    #[test]
+    fn test_check_request_insufficient_memory() {
+        let totals = SystemTotals {
+            total_mem_gb: 16.0,
+            total_cpu: 8,
+        };
+        let allocations = vec![
+            UserAlloc {
+                uid: "1000".to_string(),
+                cpu_quota: 200.0,  // 2 CPUs
+                mem_bytes: 12_000_000_000,  // 12 GB
+            },
+        ];
+
+        // Request 8 GB when only 4 GB available - should fail
+        assert!(!check_request(&totals, &allocations, 2, "8"));
+    }
+
+    #[test]
+    fn test_check_request_multiple_users() {
+        let totals = SystemTotals {
+            total_mem_gb: 32.0,
+            total_cpu: 16,
+        };
+        let allocations = vec![
+            UserAlloc {
+                uid: "1000".to_string(),
+                cpu_quota: 400.0,  // 4 CPUs
+                mem_bytes: 8_000_000_000,  // 8 GB
+            },
+            UserAlloc {
+                uid: "1001".to_string(),
+                cpu_quota: 200.0,  // 2 CPUs
+                mem_bytes: 4_000_000_000,  // 4 GB
+            },
+        ];
+
+        // 6 CPUs used, 12 GB used
+        // Request 5 CPUs and 10 GB - should be allowed (10 available, 20 available)
+        assert!(check_request(&totals, &allocations, 5, "10"));
+
+        // Request 12 CPUs - should fail (only 10 available)
+        assert!(!check_request(&totals, &allocations, 12, "8"));
+    }
+
+    #[test]
+    fn test_check_request_exact_available() {
+        let totals = SystemTotals {
+            total_mem_gb: 16.0,
+            total_cpu: 8,
+        };
+        let allocations = vec![
+            UserAlloc {
+                uid: "1000".to_string(),
+                cpu_quota: 400.0,  // 4 CPUs
+                mem_bytes: 8_000_000_000,  // 8 GB
+            },
+        ];
+
+        // Request exactly what's available
+        assert!(check_request(&totals, &allocations, 4, "8"));
+    }
+
+    #[test]
+    fn test_get_system_totals() {
+        let totals = get_system_totals();
+
+        // Basic sanity checks
+        assert!(totals.total_mem_gb > 0.0, "Total memory should be positive");
+        assert!(totals.total_cpu > 0, "Total CPUs should be positive");
+    }
+}
