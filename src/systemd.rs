@@ -7,6 +7,7 @@ use colored::*;
 
 // Import constants from cli module for validation
 use crate::cli::{MAX_CPU, MAX_MEM};
+use crate::state;
 
 pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     // Validate inputs before operations
@@ -66,6 +67,12 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
         ));
     }
 
+    // Write allocation to shared state file
+    if let Err(e) = state::write_allocation(cpu, mem) {
+        eprintln!("{} Warning: Failed to update state file: {}", "⚠".bright_yellow().bold(), e);
+        // Don't fail the whole operation if state file update fails
+    }
+
     Ok(())
 }
 
@@ -93,6 +100,12 @@ pub fn release_user_limits() -> io::Result<()> {
             io::ErrorKind::Other,
             format!("Failed to release user limits (exit code: {:?})", status.code()),
         ));
+    }
+
+    // Remove allocation from shared state file
+    if let Err(e) = state::remove_allocation() {
+        eprintln!("{} Warning: Failed to update state file: {}", "⚠".bright_yellow().bold(), e);
+        // Don't fail the whole operation if state file update fails
     }
 
     Ok(())
@@ -225,6 +238,36 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
     )?;
     println!("{} {}", "✓".green().bold(), "Created /etc/fairshare/policy.toml".bright_white());
 
+    // Create state file directory with world-readable/writable permissions
+    fs::create_dir_all("/var/lib/fairshare")?;
+
+    // Set directory permissions to 0777 (world-writable)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata("/var/lib/fairshare")?.permissions();
+        perms.set_mode(0o777);
+        fs::set_permissions("/var/lib/fairshare", perms)?;
+    }
+
+    // Initialize empty state file if it doesn't exist
+    let state_file_path = Path::new("/var/lib/fairshare/allocations.json");
+    if !state_file_path.exists() {
+        let mut state_file = fs::File::create(state_file_path)?;
+        writeln!(state_file, "{{\n  \"allocations\": {{}}\n}}")?;
+
+        // Set file permissions to 0666 (world-readable/writable)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(state_file_path)?.permissions();
+            perms.set_mode(0o666);
+            fs::set_permissions(state_file_path, perms)?;
+        }
+
+        println!("{} {}", "✓".green().bold(), "Created /var/lib/fairshare/allocations.json".bright_white());
+    }
+
     Ok(())
 }
 
@@ -233,11 +276,15 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
 /// - /etc/systemd/system/user-.slice.d/00-defaults.conf
 /// - /etc/fairshare/policy.toml
 /// - /etc/fairshare/ directory (if empty)
+/// - /var/lib/fairshare/allocations.json
+/// - /var/lib/fairshare/ directory (if empty)
 /// - Reloads systemd daemon to apply changes
 pub fn admin_uninstall_defaults() -> io::Result<()> {
     let systemd_conf_path = Path::new("/etc/systemd/system/user-.slice.d/00-defaults.conf");
     let policy_path = Path::new("/etc/fairshare/policy.toml");
     let fairshare_dir = Path::new("/etc/fairshare");
+    let state_file_path = Path::new("/var/lib/fairshare/allocations.json");
+    let state_dir = Path::new("/var/lib/fairshare");
 
     // Remove systemd configuration file
     if systemd_conf_path.exists() {
@@ -265,6 +312,31 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
                 // Directory might not be empty, which is fine
                 if e.kind() == io::ErrorKind::Other || !fairshare_dir.read_dir()?.next().is_some() {
                     println!("{} {} (not empty or already removed)", "→".bright_white(), fairshare_dir.display().to_string().bright_white());
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    // Remove state file
+    if state_file_path.exists() {
+        fs::remove_file(state_file_path)?;
+        println!("{} Removed {}", "✓".green().bold(), state_file_path.display().to_string().bright_white());
+    } else {
+        println!("{} {} (not found)", "→".bright_white(), state_file_path.display().to_string().bright_white());
+    }
+
+    // Remove state directory if it's empty
+    if state_dir.exists() {
+        match fs::remove_dir(state_dir) {
+            Ok(()) => {
+                println!("{} Removed {}", "✓".green().bold(), state_dir.display().to_string().bright_white());
+            }
+            Err(e) => {
+                // Directory might not be empty, which is fine
+                if e.kind() == io::ErrorKind::Other || !state_dir.read_dir()?.next().is_some() {
+                    println!("{} {} (not empty or already removed)", "→".bright_white(), state_dir.display().to_string().bright_white());
                 } else {
                     return Err(e);
                 }
