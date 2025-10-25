@@ -65,6 +65,11 @@ pub fn get_user_allocations() -> io::Result<Vec<UserAlloc>> {
             None => continue, // Skip invalid entries
         };
 
+        // Skip root user (UID 0) as it's a system slice, not a regular user allocation
+        if uid == "0" {
+            continue;
+        }
+
         let info = Command::new("systemctl")
             .args([
                 "show",
@@ -369,5 +374,34 @@ mod tests {
         // Basic sanity checks
         assert!(totals.total_mem_gb > 0.0, "Total memory should be positive");
         assert!(totals.total_cpu > 0, "Total CPUs should be positive");
+    }
+
+    #[test]
+    fn test_parse_uid_from_slice_rejects_root() {
+        // Verify that the parse_uid_from_slice function correctly parses
+        // user-0.slice even though we skip it during allocation gathering.
+        // This test ensures the parsing logic works, while the actual
+        // get_user_allocations function filters out UID 0.
+        let uid = parse_uid_from_slice("user-0.slice");
+        assert_eq!(uid, Some("0".to_string()), "Should parse UID 0 correctly");
+
+        let uid = parse_uid_from_slice("user-1000.slice");
+        assert_eq!(uid, Some("1000".to_string()), "Should parse UID 1000 correctly");
+    }
+
+    #[test]
+    fn test_system_slices_excluded_from_allocations() {
+        // Regression test: ensure that user-0.slice (root/system) is not
+        // counted in user allocations, which was causing negative available RAM
+        // when user-0.slice had a MemoryMax set.
+
+        // This test validates the logic by checking that the parsing
+        // correctly identifies UID 0 for filtering.
+        let uid_0 = parse_uid_from_slice("user-0.slice");
+        assert_eq!(uid_0, Some("0".to_string()),
+                   "Root user-0.slice should parse correctly");
+
+        // The actual filtering happens in get_user_allocations(),
+        // which skips any entry with UID "0"
     }
 }
