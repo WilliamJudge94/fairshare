@@ -2,12 +2,29 @@ use std::process::Command;
 use std::io::{self, Write};
 use std::fs;
 use std::path::Path;
+use std::env;
 use users;
 use colored::*;
 
 // Import constants from cli module for validation
 use crate::cli::{MAX_CPU, MAX_MEM};
 use crate::state;
+
+/// Get the UID of the user who invoked pkexec, or the current user if not run via pkexec.
+/// When run via pkexec, the PKEXEC_UID environment variable contains the original user's UID.
+fn get_calling_user_uid() -> io::Result<u32> {
+    // First check if we're running via pkexec
+    if let Ok(pkexec_uid_str) = env::var("PKEXEC_UID") {
+        pkexec_uid_str.parse::<u32>()
+            .map_err(|e| io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid PKEXEC_UID environment variable: {}", e)
+            ))
+    } else {
+        // Fallback to current user (for admin commands run directly as root)
+        Ok(users::get_current_uid())
+    }
+}
 
 pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     // Validate inputs before operations
@@ -24,7 +41,8 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
         ));
     }
 
-    let uid = users::get_current_uid();
+    // Get the UID of the user who invoked pkexec (or current user)
+    let uid = get_calling_user_uid()?;
 
     // Convert GB to bytes with overflow checking
     let mem_bytes = (mem as u64).checked_mul(1_000_000_000)
@@ -40,25 +58,13 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
             format!("CPU value {} is too large and would cause overflow when calculating quota", cpu)
         ))?;
 
-    let status = if uid == 0 {
-        // Root user: manage system-wide user slices
-        Command::new("systemctl")
-            .arg("set-property")
-            .arg(&format!("user-{}.slice", uid))
-            .arg(format!("CPUQuota={}%", cpu_quota))
-            .arg(format!("MemoryMax={}", mem_bytes))
-            .status()?
-    } else {
-        // Regular user: manage their own user session
-        Command::new("systemctl")
-            .arg("--user")
-            .arg("set-property")
-            .arg("--")
-            .arg("-.slice")
-            .arg(format!("CPUQuota={}%", cpu_quota))
-            .arg(format!("MemoryMax={}", mem_bytes))
-            .status()?
-    };
+    // When run via pkexec, we have root privileges and modify system-level user slices
+    let status = Command::new("systemctl")
+        .arg("set-property")
+        .arg(&format!("user-{}.slice", uid))
+        .arg(format!("CPUQuota={}%", cpu_quota))
+        .arg(format!("MemoryMax={}", mem_bytes))
+        .status()?;
 
     if !status.success() {
         return Err(io::Error::new(
@@ -77,23 +83,14 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
 }
 
 pub fn release_user_limits() -> io::Result<()> {
-    let uid = users::get_current_uid();
+    // Get the UID of the user who invoked pkexec (or current user)
+    let uid = get_calling_user_uid()?;
 
-    let status = if uid == 0 {
-        // Root user: revert system-wide user slice
-        Command::new("systemctl")
-            .arg("revert")
-            .arg(&format!("user-{}.slice", uid))
-            .status()?
-    } else {
-        // Regular user: revert their own user session
-        Command::new("systemctl")
-            .arg("--user")
-            .arg("revert")
-            .arg("--")
-            .arg("-.slice")
-            .status()?
-    };
+    // When run via pkexec, we have root privileges and modify system-level user slices
+    let status = Command::new("systemctl")
+        .arg("revert")
+        .arg(&format!("user-{}.slice", uid))
+        .status()?;
 
     if !status.success() {
         return Err(io::Error::new(
@@ -112,35 +109,25 @@ pub fn release_user_limits() -> io::Result<()> {
 }
 
 pub fn show_user_info() -> io::Result<()> {
-    let uid = users::get_current_uid();
-    let username = users::get_current_username()
-        .and_then(|os_str| os_str.into_string().ok())
-        .unwrap_or_else(|| "unknown".to_string());
+    // Get the UID of the user who invoked pkexec (or current user)
+    let uid = get_calling_user_uid()?;
 
-    let output = if uid == 0 {
-        // Root user: show system-wide user slice
-        Command::new("systemctl")
-            .arg("show")
-            .arg(&format!("user-{}.slice", uid))
-            .arg("-p")
-            .arg("MemoryMax")
-            .arg("-p")
-            .arg("CPUQuota")
-            .arg("-p")
-            .arg("CPUQuotaPerSecUSec")
-            .output()?
-    } else {
-        // Regular user: show their own user session
-        Command::new("systemctl")
-            .arg("--user")
-            .arg("show")
-            .arg("--")
-            .arg("-.slice")
-            .arg("-pMemoryMax")
-            .arg("-pCPUQuota")
-            .arg("-pCPUQuotaPerSecUSec")
-            .output()?
-    };
+    // Get username for the calling user
+    let username = users::get_user_by_uid(uid)
+        .and_then(|user| user.name().to_str().map(String::from))
+        .unwrap_or_else(|| format!("uid{}", uid));
+
+    // When run via pkexec, we have root privileges and query system-level user slices
+    let output = Command::new("systemctl")
+        .arg("show")
+        .arg(&format!("user-{}.slice", uid))
+        .arg("-p")
+        .arg("MemoryMax")
+        .arg("-p")
+        .arg("CPUQuota")
+        .arg("-p")
+        .arg("CPUQuotaPerSecUSec")
+        .output()?;
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let mut cpu_quota = "Not set".to_string();
@@ -269,6 +256,124 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
         println!("{} {}", "✓".green().bold(), "Created /var/lib/fairshare/allocations.json".bright_white());
     }
 
+    // Install PolicyKit policy file for pkexec integration
+    let policy_source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/org.fairshare.policy");
+    let policy_dest = Path::new("/usr/share/polkit-1/actions/org.fairshare.policy");
+
+    if policy_source.exists() {
+        // Create the destination directory if it doesn't exist
+        if let Some(parent) = policy_dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // Copy the policy file
+        fs::copy(&policy_source, policy_dest)?;
+
+        // Set permissions to 644 (rw-r--r--)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(policy_dest)?.permissions();
+            perms.set_mode(0o644);
+            fs::set_permissions(policy_dest, perms)?;
+        }
+
+        println!("{} {}", "✓".green().bold(), "Installed PolicyKit policy to /usr/share/polkit-1/actions/org.fairshare.policy".bright_white());
+    } else {
+        eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: PolicyKit policy file not found at assets/org.fairshare.policy".bright_yellow());
+    }
+
+    // Install PolicyKit rule to allow pkexec without admin authentication
+    let rule_source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/50-fairshare.rules");
+    let rule_dest = Path::new("/etc/polkit-1/rules.d/50-fairshare.rules");
+
+    if rule_source.exists() {
+        // Create the destination directory if it doesn't exist
+        if let Some(parent) = rule_dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // Copy the rule file
+        fs::copy(&rule_source, rule_dest)?;
+
+        // Set permissions to 644 (rw-r--r--)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(rule_dest)?.permissions();
+            perms.set_mode(0o644);
+            fs::set_permissions(rule_dest, perms)?;
+        }
+
+        println!("{} {}", "✓".green().bold(), "Installed PolicyKit rule to /etc/polkit-1/rules.d/50-fairshare.rules".bright_white());
+
+        // Restart polkit service to apply the new rule
+        let polkit_restart = Command::new("systemctl")
+            .arg("restart")
+            .arg("polkit.service")
+            .status();
+
+        match polkit_restart {
+            Ok(status) if status.success() => {
+                println!("{} {}", "✓".green().bold(), "Restarted polkit.service".bright_white());
+            }
+            Ok(_) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
+            }
+            Err(e) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+            }
+        }
+    } else {
+        eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: PolicyKit rule file not found at assets/50-fairshare.rules".bright_yellow());
+    }
+
+    // Install PolicyKit localauthority file (.pkla) for older PolicyKit versions (0.105 and earlier)
+    // This provides the same functionality as the .rules file but uses the older localauthority backend
+    let pkla_source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/50-fairshare.pkla");
+    let pkla_dest = Path::new("/etc/polkit-1/localauthority/50-local.d/50-fairshare.pkla");
+
+    if pkla_source.exists() {
+        // Create the destination directory if it doesn't exist
+        if let Some(parent) = pkla_dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // Copy the pkla file
+        fs::copy(&pkla_source, pkla_dest)?;
+
+        // Set permissions to 644 (rw-r--r--)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(pkla_dest)?.permissions();
+            perms.set_mode(0o644);
+            fs::set_permissions(pkla_dest, perms)?;
+        }
+
+        println!("{} {}", "✓".green().bold(), "Installed PolicyKit localauthority file to /etc/polkit-1/localauthority/50-local.d/50-fairshare.pkla".bright_white());
+
+        // Restart polkit service to apply the new policy (if not already restarted above)
+        let polkit_restart = Command::new("systemctl")
+            .arg("restart")
+            .arg("polkit.service")
+            .status();
+
+        match polkit_restart {
+            Ok(status) if status.success() => {
+                println!("{} {}", "✓".green().bold(), "Restarted polkit.service to apply policies".bright_white());
+            }
+            Ok(_) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
+            }
+            Err(e) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+            }
+        }
+    } else {
+        eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: PolicyKit localauthority file not found at assets/50-fairshare.pkla".bright_yellow());
+    }
+
     Ok(())
 }
 
@@ -280,13 +385,20 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
 /// - /etc/fairshare/ directory (if empty)
 /// - /var/lib/fairshare/allocations.json
 /// - /var/lib/fairshare/ directory (if empty)
+/// - /usr/share/polkit-1/actions/org.fairshare.policy
+/// - /etc/polkit-1/rules.d/50-fairshare.rules
+/// - /etc/polkit-1/localauthority/50-local.d/50-fairshare.pkla
 /// - Reloads systemd daemon to apply changes
+/// - Restarts polkit.service to apply rule removal
 pub fn admin_uninstall_defaults() -> io::Result<()> {
     let systemd_conf_path = Path::new("/etc/systemd/system/user-.slice.d/00-defaults.conf");
     let policy_path = Path::new("/etc/fairshare/policy.toml");
     let fairshare_dir = Path::new("/etc/fairshare");
     let state_file_path = Path::new("/var/lib/fairshare/allocations.json");
     let state_dir = Path::new("/var/lib/fairshare");
+    let polkit_policy_path = Path::new("/usr/share/polkit-1/actions/org.fairshare.policy");
+    let polkit_rule_path = Path::new("/etc/polkit-1/rules.d/50-fairshare.rules");
+    let polkit_pkla_path = Path::new("/etc/polkit-1/localauthority/50-local.d/50-fairshare.pkla");
 
     // First, revert all user allocations by reading the state file
     if state_file_path.exists() {
@@ -405,6 +517,66 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
                 }
             }
         }
+    }
+
+    // Remove PolicyKit policy file
+    if polkit_policy_path.exists() {
+        fs::remove_file(polkit_policy_path)?;
+        println!("{} Removed {}", "✓".green().bold(), polkit_policy_path.display().to_string().bright_white());
+    } else {
+        println!("{} {} (not found)", "→".bright_white(), polkit_policy_path.display().to_string().bright_white());
+    }
+
+    // Remove PolicyKit rule file
+    if polkit_rule_path.exists() {
+        fs::remove_file(polkit_rule_path)?;
+        println!("{} Removed {}", "✓".green().bold(), polkit_rule_path.display().to_string().bright_white());
+
+        // Restart polkit service to apply the rule removal
+        let polkit_restart = Command::new("systemctl")
+            .arg("restart")
+            .arg("polkit.service")
+            .status();
+
+        match polkit_restart {
+            Ok(status) if status.success() => {
+                println!("{} {}", "✓".green().bold(), "Restarted polkit.service".bright_white());
+            }
+            Ok(_) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
+            }
+            Err(e) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+            }
+        }
+    } else {
+        println!("{} {} (not found)", "→".bright_white(), polkit_rule_path.display().to_string().bright_white());
+    }
+
+    // Remove PolicyKit localauthority file (.pkla)
+    if polkit_pkla_path.exists() {
+        fs::remove_file(polkit_pkla_path)?;
+        println!("{} Removed {}", "✓".green().bold(), polkit_pkla_path.display().to_string().bright_white());
+
+        // Restart polkit service to apply the pkla removal (if not already restarted above)
+        let polkit_restart = Command::new("systemctl")
+            .arg("restart")
+            .arg("polkit.service")
+            .status();
+
+        match polkit_restart {
+            Ok(status) if status.success() => {
+                println!("{} {}", "✓".green().bold(), "Restarted polkit.service to apply policy removal".bright_white());
+            }
+            Ok(_) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
+            }
+            Err(e) => {
+                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+            }
+        }
+    } else {
+        println!("{} {} (not found)", "→".bright_white(), polkit_pkla_path.display().to_string().bright_white());
     }
 
     // Reload systemd daemon to apply changes

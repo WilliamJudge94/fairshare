@@ -1,0 +1,18 @@
+/* PolicyKit rule to allow active users to run fairshare via pkexec without admin authentication
+ *
+ * This rule allows any active user to execute /usr/local/bin/fairshare via pkexec without
+ * requiring root password authentication. This works in conjunction with org.fairshare.policy
+ * to provide passwordless resource management for logged-in users.
+ *
+ * Installation: Automatically installed to /etc/polkit-1/rules.d/50-fairshare.rules
+ *               during 'fairshare admin setup'
+ */
+
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/local/bin/fairshare") {
+        if (subject.active) {
+            return polkit.Result.YES;
+        }
+    }
+});

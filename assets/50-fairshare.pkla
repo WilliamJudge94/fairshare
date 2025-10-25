@@ -1,0 +1,20 @@
+[Allow fairshare for all users]
+Identity=unix-user:*
+Action=org.fairshare.manage-resources
+ResultActive=yes
+ResultInactive=yes
+ResultAny=yes
+
+[Allow pkexec for all users]
+Identity=unix-user:*
+Action=org.freedesktop.policykit.exec
+ResultActive=yes
+ResultInactive=yes
+ResultAny=yes
+
+[Allow systemd manage-units for all users]
+Identity=unix-user:*
+Action=org.freedesktop.systemd1.manage-units
+ResultActive=yes
+ResultInactive=yes
+ResultAny=yes
