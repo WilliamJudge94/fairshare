@@ -188,7 +188,7 @@ fn parse_mem_gb(mem: &str) -> f64 {
 }
 
 /// Get username from UID, returns None if user doesn't exist
-fn get_username_from_uid(uid_str: &str) -> Option<String> {
+pub fn get_username_from_uid(uid_str: &str) -> Option<String> {
     let uid_num: uid_t = uid_str.parse().ok()?;
     get_user_by_uid(uid_num).map(|user| user.name().to_string_lossy().into_owned())
 }

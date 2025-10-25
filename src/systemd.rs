@@ -480,7 +480,8 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
 
 /// Uninstall global defaults and remove all fairshare admin configuration.
 /// This removes:
-/// - All active user allocations (reverts user session slices)
+/// - All active user allocations (queries systemd and reverts each user-{UID}.slice)
+/// - /etc/systemd/system.control/user-*.slice.d/ directories (user slice configs)
 /// - /etc/systemd/system/user-.slice.d/00-defaults.conf
 /// - /etc/fairshare/policy.toml
 /// - /etc/fairshare/ directory (if empty)
@@ -501,63 +502,79 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
     let polkit_rule_path = Path::new("/etc/polkit-1/rules.d/50-fairshare.rules");
     let polkit_pkla_path = Path::new("/etc/polkit-1/localauthority/50-local.d/50-fairshare.pkla");
 
-    // First, revert all user allocations by reading the state file
-    if state_file_path.exists() {
-        match state::read_allocations() {
-            Ok(allocations) => {
-                if !allocations.is_empty() {
-                    println!("{}", "Reverting user allocations:".bright_cyan().bold());
-                    for (uid, alloc) in allocations {
-                        // Try to revert the user's slice
-                        let result = if uid == "0" {
-                            // Root user
-                            Command::new("systemctl")
-                                .arg("revert")
-                                .arg("user-0.slice")
-                                .output()
-                        } else {
-                            // Regular user - need to run as that user
-                            Command::new("su")
-                                .arg("-")
-                                .arg(&alloc.username)
-                                .arg("-c")
-                                .arg("systemctl --user revert -- -.slice")
-                                .output()
-                        };
+    // First, revert all user allocations by querying systemd directly
+    match crate::system::get_user_allocations() {
+        Ok(allocations) => {
+            if !allocations.is_empty() {
+                println!("{}", "Reverting user allocations:".bright_cyan().bold());
+                for alloc in allocations {
+                    // Get username for display
+                    let username = crate::system::get_username_from_uid(&alloc.uid)
+                        .unwrap_or_else(|| format!("UID {}", alloc.uid));
 
-                        match result {
-                            Ok(output) => {
-                                if output.status.success() {
-                                    println!("{} Reverted limits for user {} (UID: {})",
-                                        "✓".green().bold(),
-                                        alloc.username.bright_yellow(),
-                                        uid.bright_white()
-                                    );
-                                } else {
-                                    println!("{} Failed to revert limits for user {} (UID: {}): {}",
-                                        "⚠".bright_yellow().bold(),
-                                        alloc.username.bright_yellow(),
-                                        uid.bright_white(),
-                                        String::from_utf8_lossy(&output.stderr).trim()
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                println!("{} Could not revert limits for user {} (UID: {}): {}",
+                    // Revert the user's slice at system level (not --user)
+                    let result = Command::new("systemctl")
+                        .arg("revert")
+                        .arg(&format!("user-{}.slice", alloc.uid))
+                        .output();
+
+                    match result {
+                        Ok(output) => {
+                            if output.status.success() {
+                                println!("{} Reverted limits for user {} (UID: {})",
+                                    "✓".green().bold(),
+                                    username.bright_yellow(),
+                                    alloc.uid.bright_white()
+                                );
+                            } else {
+                                println!("{} Failed to revert limits for user {} (UID: {}): {}",
                                     "⚠".bright_yellow().bold(),
-                                    alloc.username.bright_yellow(),
-                                    uid.bright_white(),
-                                    e
+                                    username.bright_yellow(),
+                                    alloc.uid.bright_white(),
+                                    String::from_utf8_lossy(&output.stderr).trim()
                                 );
                             }
                         }
+                        Err(e) => {
+                            println!("{} Could not revert limits for user {} (UID: {}): {}",
+                                "⚠".bright_yellow().bold(),
+                                username.bright_yellow(),
+                                alloc.uid.bright_white(),
+                                e
+                            );
+                        }
                     }
-                    println!();
                 }
+                println!();
             }
-            Err(e) => {
-                println!("{} Warning: Could not read state file to revert user allocations: {}",
-                    "⚠".bright_yellow().bold(), e);
+        }
+        Err(e) => {
+            println!("{} Warning: Could not query systemd to revert user allocations: {}",
+                "⚠".bright_yellow().bold(), e);
+        }
+    }
+
+    // Clean up system.control directories for user slices
+    let system_control_dir = Path::new("/etc/systemd/system.control");
+    if system_control_dir.exists() {
+        if let Ok(entries) = fs::read_dir(system_control_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name() {
+                    let name_str = name.to_string_lossy();
+                    // Remove directories matching user-*.slice.d pattern
+                    if name_str.starts_with("user-") && name_str.ends_with(".slice.d") {
+                        match fs::remove_dir_all(&path) {
+                            Ok(()) => {
+                                println!("{} Removed {}", "✓".green().bold(), path.display().to_string().bright_white());
+                            }
+                            Err(e) => {
+                                println!("{} Warning: Could not remove {}: {}",
+                                    "⚠".bright_yellow().bold(), path.display().to_string().bright_white(), e);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
