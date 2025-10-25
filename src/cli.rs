@@ -26,7 +26,7 @@ pub enum Commands {
     /// Show current user's resource allocation
     Info,
 
-    /// Admin operations (requires root)
+    /// Admin operations - setup/uninstall global resource limits (requires root)
     Admin {
         #[command(subcommand)]
         sub: AdminSubcommands,

@@ -91,7 +91,7 @@ Displays the CPUQuota and MemoryMax values for your user slice.
 
 ### `admin`
 
-Admin operations (requires root privileges).
+Admin operations (requires root privileges). Use these commands to manage global resource limits for all users on the system.
 
 #### `admin setup`
 
@@ -109,6 +109,23 @@ This command:
 - Creates `/etc/systemd/system/user-.slice.d/00-defaults.conf` with default limits
 - Creates `/etc/fairshare/policy.toml` with policy configuration
 - Reloads the systemd daemon
+
+#### `admin uninstall`
+
+Remove all fairshare admin configuration and revert to system defaults.
+
+```bash
+sudo fairshare admin uninstall
+```
+
+Options:
+- `--force`: Skip confirmation prompt
+
+This command:
+- Removes `/etc/systemd/system/user-.slice.d/00-defaults.conf`
+- Removes `/etc/fairshare/policy.toml`
+- Prompts for confirmation (unless `--force` flag is used)
+- Reloads the systemd daemon to apply changes
 
 ## How It Works
 
