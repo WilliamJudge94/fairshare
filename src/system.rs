@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::io;
 use sysinfo::System;
 use colored::*;
 use comfy_table::{Table, presets::UTF8_FULL, modifiers::UTF8_ROUND_CORNERS, Cell, Color};
@@ -29,35 +30,55 @@ pub fn get_system_totals() -> SystemTotals {
     }
 }
 
-pub fn get_user_allocations() -> Vec<UserAlloc> {
-    let output = Command::new("bash")
-        .arg("-c")
-        .arg("systemctl list-units --type=slice --all | grep user- | awk '{print $1}'")
+pub fn get_user_allocations() -> io::Result<Vec<UserAlloc>> {
+    let output = Command::new("systemctl")
+        .args(["list-units", "--type=slice", "--all", "--no-legend", "--plain"])
         .output()
-        .expect("failed to list slices");
+        .map_err(|e| io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to list systemd slices: {}", e)
+        ))?;
+
+    if !output.status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("systemctl command failed with exit code: {:?}", output.status.code())
+        ));
+    }
 
     let mut allocations = vec![];
 
     for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let uid = line
-            .trim()
-            .split('-')
-            .nth(1)
-            .unwrap_or("")
-            .trim_end_matches(".slice")
-            .to_string();
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.is_empty() {
+            continue;
+        }
+
+        let unit_name = parts[0];
+        if !unit_name.starts_with("user-") || !unit_name.ends_with(".slice") {
+            continue;
+        }
+
+        // Parse UID from unit name (e.g., "user-1000.slice")
+        let uid = match parse_uid_from_slice(unit_name) {
+            Some(uid) => uid,
+            None => continue, // Skip invalid entries
+        };
 
         let info = Command::new("systemctl")
             .args([
                 "show",
-                &format!("user-{}.slice", uid),
+                unit_name,
                 "-p",
                 "MemoryMax",
                 "-p",
                 "CPUQuotaPerSecUSec",
             ])
             .output()
-            .unwrap();
+            .map_err(|e| io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to get slice info for {}: {}", unit_name, e)
+            ))?;
 
         let out = String::from_utf8_lossy(&info.stdout);
         let mut mem_bytes = 0;
@@ -87,7 +108,27 @@ pub fn get_user_allocations() -> Vec<UserAlloc> {
         });
     }
 
-    allocations
+    Ok(allocations)
+}
+
+fn parse_uid_from_slice(slice_name: &str) -> Option<String> {
+    // Expected format: "user-1000.slice"
+    let parts: Vec<&str> = slice_name.split('-').collect();
+    if parts.len() != 2 || parts[0] != "user" {
+        return None;
+    }
+
+    let uid_str = parts[1].trim_end_matches(".slice");
+
+    // Validate it's only digits
+    if !uid_str.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    // Additional validation: ensure it can be parsed as u32
+    uid_str.parse::<u32>().ok()?;
+
+    Some(uid_str.to_string())
 }
 
 pub fn check_request(

@@ -14,13 +14,25 @@ fn main() {
     match &cli.command {
         Commands::Status => {
             let totals = get_system_totals();
-            let allocations = get_user_allocations();
+            let allocations = match get_user_allocations() {
+                Ok(allocs) => allocs,
+                Err(e) => {
+                    eprintln!("{} Failed to get user allocations: {}", "✗".red().bold(), e);
+                    std::process::exit(1);
+                }
+            };
             print_status(&totals, &allocations);
         }
 
         Commands::Request { cpu, mem } => {
             let totals = get_system_totals();
-            let allocations = get_user_allocations();
+            let allocations = match get_user_allocations() {
+                Ok(allocs) => allocs,
+                Err(e) => {
+                    eprintln!("{} Failed to get user allocations: {}", "✗".red().bold(), e);
+                    std::process::exit(1);
+                }
+            };
 
             if !check_request(&totals, &allocations, *cpu, &mem.to_string()) {
                 eprintln!("{} {}", "✗".red().bold(), "Request exceeds available system resources.".red());
