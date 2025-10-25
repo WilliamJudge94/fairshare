@@ -48,6 +48,14 @@ esac
 echo -e "Detected architecture: ${GREEN}$ARCH_NAME${NC}"
 echo
 
+# Update package lists
+echo "Updating package lists..."
+apt update || {
+    echo -e "${YELLOW}Warning: Failed to run apt update${NC}"
+    echo "Continuing anyway..."
+}
+echo
+
 # Check for dependencies
 echo "Checking dependencies..."
 MISSING_DEPS=()
