@@ -33,30 +33,40 @@ sudo cp target/release/fairshare /usr/local/bin/
 
 ### Requirements
 - **Linux** with systemd (including user session support)
+- **PolicyKit (polkit)** for privilege escalation
 - **Rust 1.70+** (only needed for building)
 
 ## Usage Guide
 
 ### User Commands
 
+All user commands require `pkexec` for privilege escalation via PolicyKit. This allows you to manage your own resources without needing full administrator access.
+
 #### 1. Check System Status
 See how much CPU and memory is available and what each user is currently using.
 ```bash
-fairshare status
+pkexec fairshare status
 ```
 
 #### 2. Check Your Current Allocation
 View how much CPU and memory your user session has access to.
 ```bash
-fairshare info
+pkexec fairshare info
 ```
 
-#### 3. Request More Resources
-Ask for additional CPU and memory. The system will grant your request only if resources are available.
+#### 3. Request Resources
+Ask for CPU and memory resources. The system uses **smart delta-based checking** - it only needs enough free resources to cover the increase from your current allocation.
+
 ```bash
-fairshare request --cpu 4 --mem 8
+pkexec fairshare request --cpu 4 --mem 8
 ```
 This requests 4 CPU cores and 8GB of RAM.
+
+**Smart Allocation Example:**
+- You currently have: 9GB RAM allocated
+- System has: 2GB free
+- You request: 10GB RAM
+- Result: **SUCCESS** (net increase is only 1GB, which fits in the 2GB available)
 
 **Constraints:**
 - CPU: 1–1000 cores
@@ -65,7 +75,7 @@ This requests 4 CPU cores and 8GB of RAM.
 #### 4. Release Resources
 Return your resources to the system and revert to the default allocation (1 CPU core, 2GB RAM).
 ```bash
-fairshare release
+pkexec fairshare release
 ```
 
 ### Administrator Commands
@@ -84,20 +94,40 @@ Remove fairshare from your system and revert to standard Linux resource manageme
 sudo fairshare admin uninstall --force
 ```
 
+## How It Works
+
+fairshare uses systemd as the authoritative source of truth for all resource allocations:
+
+1. **Resource Tracking**: All allocations are stored directly in systemd user slices (`user-{UID}.slice`)
+2. **Dynamic Querying**: The system queries systemd in real-time to get current allocations (no persistent state file)
+3. **Delta-Based Checking**: When you request resources, fairshare calculates the net change from your current allocation
+4. **Privilege Escalation**: Uses pkexec (PolicyKit) to allow users to modify their own slices without full root access
+
 ## Troubleshooting
 
-### Commands fail with "permission denied"
-Make sure your systemd user session is running:
+### Commands fail with "authentication required" or "permission denied"
+Make sure you're using `pkexec` for user commands:
 ```bash
-systemctl --user status
+pkexec fairshare status
 ```
 
-### Resource request fails
-Check available resources on the system:
+If PolicyKit authentication keeps prompting, verify that admin setup completed successfully:
 ```bash
-fairshare status
+sudo fairshare admin setup --cpu 1 --mem 2
 ```
-Your request may exceed the available resources.
+
+### Resource request fails even though resources seem available
+Remember that fairshare uses delta-based checking. Check your current allocation:
+```bash
+pkexec fairshare info
+```
+
+Then check system-wide availability:
+```bash
+pkexec fairshare status
+```
+
+Your request fails only if the **net increase** exceeds available resources.
 
 ### Changes don't take effect
 After running `sudo fairshare admin setup`, systemd needs to reload:

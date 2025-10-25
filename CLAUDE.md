@@ -27,11 +27,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Running
 - **Show help**: `cargo run -- --help`
-- **Show status**: `cargo run -- status`
-- **Request resources**: `cargo run -- request --cpu 4 --mem 8`
-- **Show user info**: `cargo run -- info`
-- **Release resources**: `cargo run -- release`
-- **Admin setup** (requires root): `cargo run -- admin setup --cpu 1 --mem 2`
+- **Show status**: `pkexec fairshare status`
+- **Request resources**: `pkexec fairshare request --cpu 4 --mem 8`
+- **Show user info**: `pkexec fairshare info`
+- **Release resources**: `pkexec fairshare release`
+- **Admin setup** (requires root): `sudo fairshare admin setup --cpu 1 --mem 2`
+
+**Note**: Regular user commands use `pkexec` for privilege escalation via PolicyKit. Admin commands require `sudo`.
 
 ## Architecture Overview
 
@@ -56,16 +58,18 @@ The codebase is organized into four main modules:
 
 #### System Information (`system.rs`)
 - `get_system_totals()` - Returns total system CPU and memory (uses `sysinfo` crate)
-- `get_user_allocations()` - Reads all user slice allocations via `systemctl list-units`
-- `check_request()` - Validates if requested resources are available
+- `get_user_allocations()` - Queries systemd directly for all user slice allocations (systemd is the source of truth)
+- `get_user_allocations_from_systemd()` - Reads user slice properties via `systemctl list-units` and `systemctl show`
+- `check_request()` - Validates if requested resources are available using **delta-based checking** (considers existing user allocation)
 - `print_status()` - Displays formatted system and per-user resource overview
 
 #### Resource Management (`systemd.rs`)
-- `set_user_limits()` - Applies CPU quota and memory limits via `systemctl --user set-property`
-- `release_user_limits()` - Reverts limits back to defaults via `systemctl --user revert`
+- `get_calling_user_uid()` - Retrieves the UID of the user who invoked pkexec (reads `PKEXEC_UID` environment variable)
+- `set_user_limits()` - Applies CPU quota and memory limits via `systemctl set-property` on the calling user's slice
+- `release_user_limits()` - Reverts limits back to defaults via `systemctl revert` on the calling user's slice
 - `show_user_info()` - Displays current user's resource allocation
-- `admin_setup_defaults()` - Creates systemd config at `/etc/systemd/system/user-.slice.d/00-defaults.conf`
-- `admin_uninstall_defaults()` - Removes admin configuration files and reloads systemd
+- `admin_setup_defaults()` - Creates systemd config at `/etc/systemd/system/user-.slice.d/00-defaults.conf` and installs PolicyKit policies
+- `admin_uninstall_defaults()` - Removes admin configuration files, PolicyKit policies, and reloads systemd
 
 ### Resource Units
 
@@ -128,37 +132,50 @@ Configured in `src/cli.rs`:
 
 ## Important Implementation Details
 
-### User Privileges
+### User Privileges and pkexec Integration
 
-The tool handles both regular and root users differently:
+The tool uses **pkexec** (PolicyKit) for privilege escalation, allowing regular users to modify their own resource limits without full root access:
 
-**Regular users** (non-root):
-- Manage their own user session: `systemctl --user set-property -.slice`
-- Cannot affect other users
-- No elevated privileges needed
+**Regular users**:
+- Run commands via `pkexec fairshare ...` (e.g., `pkexec fairshare request --cpu 4 --mem 8`)
+- pkexec grants root privileges but preserves the calling user's UID in `PKEXEC_UID` environment variable
+- Commands modify system-level user slices: `systemctl set-property user-{UID}.slice`
+- PolicyKit policies allow users to manage their own resources without entering admin password
+- Cannot affect other users' allocations
 
-**Root users**:
-- Manage system-wide settings via `systemctl set-property user-0.slice`
+**Root/Admin users**:
+- Run admin commands with `sudo` (e.g., `sudo fairshare admin setup --cpu 1 --mem 2`)
 - Create/modify global defaults in `/etc/systemd/system/`
+- Install PolicyKit policies in `/usr/share/polkit-1/actions/` and `/etc/polkit-1/rules.d/`
 - Can affect all user sessions
 
-### Resource Calculation
+### Resource Calculation and Delta-Based Checking
 
-When checking availability:
-1. Sum all current allocations from `systemctl show` output
-2. Subtract from system totals (from `sysinfo`)
-3. Compare against requested resources
+**Source of Truth**: Systemd is the authoritative source for all resource allocations. The system queries systemd directly via `systemctl` commands - no persistent state file is used.
 
-Critical parsing logic in `system.rs:88-101` handles `CPUQuotaPerSecUSec` conversion to percentage.
+**Delta-based resource checking**: When a user requests resources, the system intelligently calculates the **net increase** needed:
+
+1. Query all current allocations from systemd via `systemctl show`
+2. If the requesting user already has an allocation, subtract it from total used resources
+3. Calculate available resources: `total - (used - user's_current_allocation)`
+4. Check if the requested amount fits in the available pool
+
+**Example**: User has 9GB allocated, requests 10GB, and only 2GB is free system-wide:
+- Old behavior (would fail): Check if 10GB ≤ 2GB available → **FAIL**
+- New behavior (succeeds): Net increase = 10GB - 9GB = 1GB; Check if 1GB ≤ 2GB available → **SUCCESS**
+
+This allows users to adjust their allocations up or down without being blocked by their own existing allocation.
+
+Critical parsing logic in `system.rs` handles `CPUQuotaPerSecUSec` conversion to percentage (1s = 100%, 4s = 400%, etc.).
 
 ### Systemd Interaction
 
-The tool uses these `systemctl` commands:
-- `systemctl list-units --type=slice` - List all user slices
-- `systemctl show` - Get slice properties (MemoryMax, CPUQuotaPerSecUSec)
-- `systemctl --user set-property` - Apply limits to user session
-- `systemctl --user revert` - Remove custom limits
-- `systemctl daemon-reload` - Reload after config changes
+The tool uses these `systemctl` commands (when run via pkexec, these operate at the system level):
+- `systemctl list-units --type=slice --all --no-legend --plain` - List all user slices
+- `systemctl show user-{UID}.slice` - Get slice properties (MemoryMax, CPUQuotaPerSecUSec)
+- `systemctl set-property user-{UID}.slice` - Apply limits to specific user slice
+- `systemctl revert user-{UID}.slice` - Remove custom limits and restore defaults
+- `systemctl daemon-reload` - Reload systemd after config file changes
 
 ## Dependencies
 
@@ -174,12 +191,14 @@ The tool uses these `systemctl` commands:
 ## Common Issues
 
 ### Systemd Commands Fail
-- Ensure systemd user session is running: `systemctl --user status`
-- Root operations require `sudo`
+- Ensure you're using `pkexec` for user commands: `pkexec fairshare status`
+- Admin operations require `sudo`: `sudo fairshare admin setup --cpu 1 --mem 2`
+- PolicyKit policies must be installed (automatic during `admin setup`)
 
 ### Resource Allocation Fails
-- Check available resources: `cargo run -- status`
-- May exceed system limits during concurrent allocations
+- Check available resources: `pkexec fairshare status`
+- Remember: The system uses delta-based checking, so you can modify your existing allocation
+- Requests may fail if the net increase exceeds available resources
 
 ### Configuration Not Applied
 - Always run `systemctl daemon-reload` after modifying `/etc/systemd/`
