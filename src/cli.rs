@@ -42,4 +42,11 @@ pub enum AdminSubcommands {
         #[arg(long, default_value_t = 2)]
         mem: u32,
     },
+
+    /// Uninstall global defaults and remove all fairshare admin configuration
+    Uninstall {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
 }

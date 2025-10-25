@@ -163,6 +163,64 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
     Ok(())
 }
 
+/// Uninstall global defaults and remove all fairshare admin configuration.
+/// This removes:
+/// - /etc/systemd/system/user-.slice.d/00-defaults.conf
+/// - /etc/fairshare/policy.toml
+/// - /etc/fairshare/ directory (if empty)
+/// - Reloads systemd daemon to apply changes
+pub fn admin_uninstall_defaults() -> io::Result<()> {
+    let systemd_conf_path = Path::new("/etc/systemd/system/user-.slice.d/00-defaults.conf");
+    let policy_path = Path::new("/etc/fairshare/policy.toml");
+    let fairshare_dir = Path::new("/etc/fairshare");
+
+    // Remove systemd configuration file
+    if systemd_conf_path.exists() {
+        fs::remove_file(systemd_conf_path)?;
+        println!("{} Removed {}", "✓".green().bold(), systemd_conf_path.display().to_string().bright_white());
+    } else {
+        println!("{} {} (not found)", "→".bright_white(), systemd_conf_path.display().to_string().bright_white());
+    }
+
+    // Remove policy configuration file
+    if policy_path.exists() {
+        fs::remove_file(policy_path)?;
+        println!("{} Removed {}", "✓".green().bold(), policy_path.display().to_string().bright_white());
+    } else {
+        println!("{} {} (not found)", "→".bright_white(), policy_path.display().to_string().bright_white());
+    }
+
+    // Remove fairshare directory if it's empty
+    if fairshare_dir.exists() {
+        match fs::remove_dir(fairshare_dir) {
+            Ok(()) => {
+                println!("{} Removed {}", "✓".green().bold(), fairshare_dir.display().to_string().bright_white());
+            }
+            Err(e) => {
+                // Directory might not be empty, which is fine
+                if e.kind() == io::ErrorKind::Other || !fairshare_dir.read_dir()?.next().is_some() {
+                    println!("{} {} (not empty or already removed)", "→".bright_white(), fairshare_dir.display().to_string().bright_white());
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    // Reload systemd daemon to apply changes
+    let status = Command::new("systemctl").arg("daemon-reload").status()?;
+    if status.success() {
+        println!("{} {}", "✓".green().bold(), "Reloaded systemd daemon".bright_white());
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to reload systemd daemon (exit code: {:?})", status.code()),
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

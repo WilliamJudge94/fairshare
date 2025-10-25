@@ -80,6 +80,36 @@ fn main() {
                     format!("MemoryMax={}G", mem).bright_yellow()
                 );
             }
+            AdminSubcommands::Uninstall { force } => {
+                if !force {
+                    eprintln!("{} {}",
+                        "⚠".bright_yellow().bold(),
+                        "This will remove all fairshare admin configuration!".bright_yellow()
+                    );
+                    eprintln!("{} {}", "  Files to be removed:".bright_white().bold(), "");
+                    eprintln!("    - /etc/systemd/system/user-.slice.d/00-defaults.conf");
+                    eprintln!("    - /etc/fairshare/policy.toml");
+                    eprintln!("    - /etc/fairshare/ (if empty)");
+                    eprint!("\n{} {}", "Continue?".bright_white().bold(), "[y/N]: ".bright_white());
+                    std::io::Write::flush(&mut std::io::stderr()).ok();
+
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input).ok();
+                    if !input.trim().eq_ignore_ascii_case("y") && !input.trim().eq_ignore_ascii_case("yes") {
+                        println!("{} {}", "✗".red().bold(), "Uninstall cancelled.".red());
+                        return;
+                    }
+                }
+
+                if let Err(e) = admin_uninstall_defaults() {
+                    eprintln!("{} {}: {}", "✗".red().bold(), "Uninstall failed".red(), e);
+                    std::process::exit(1);
+                }
+                println!("{} {}",
+                    "✓".green().bold(),
+                    "Global defaults uninstalled. System reverted to standard resource limits.".green()
+                );
+            }
         },
     }
 }
