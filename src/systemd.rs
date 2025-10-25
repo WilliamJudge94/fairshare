@@ -274,6 +274,7 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
 
 /// Uninstall global defaults and remove all fairshare admin configuration.
 /// This removes:
+/// - All active user allocations (reverts user session slices)
 /// - /etc/systemd/system/user-.slice.d/00-defaults.conf
 /// - /etc/fairshare/policy.toml
 /// - /etc/fairshare/ directory (if empty)
@@ -286,6 +287,67 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
     let fairshare_dir = Path::new("/etc/fairshare");
     let state_file_path = Path::new("/var/lib/fairshare/allocations.json");
     let state_dir = Path::new("/var/lib/fairshare");
+
+    // First, revert all user allocations by reading the state file
+    if state_file_path.exists() {
+        match state::read_allocations() {
+            Ok(allocations) => {
+                if !allocations.is_empty() {
+                    println!("{}", "Reverting user allocations:".bright_cyan().bold());
+                    for (uid, alloc) in allocations {
+                        // Try to revert the user's slice
+                        let result = if uid == "0" {
+                            // Root user
+                            Command::new("systemctl")
+                                .arg("revert")
+                                .arg("user-0.slice")
+                                .output()
+                        } else {
+                            // Regular user - need to run as that user
+                            Command::new("su")
+                                .arg("-")
+                                .arg(&alloc.username)
+                                .arg("-c")
+                                .arg("systemctl --user revert -- -.slice")
+                                .output()
+                        };
+
+                        match result {
+                            Ok(output) => {
+                                if output.status.success() {
+                                    println!("{} Reverted limits for user {} (UID: {})",
+                                        "✓".green().bold(),
+                                        alloc.username.bright_yellow(),
+                                        uid.bright_white()
+                                    );
+                                } else {
+                                    println!("{} Failed to revert limits for user {} (UID: {}): {}",
+                                        "⚠".bright_yellow().bold(),
+                                        alloc.username.bright_yellow(),
+                                        uid.bright_white(),
+                                        String::from_utf8_lossy(&output.stderr).trim()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                println!("{} Could not revert limits for user {} (UID: {}): {}",
+                                    "⚠".bright_yellow().bold(),
+                                    alloc.username.bright_yellow(),
+                                    uid.bright_white(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    println!();
+                }
+            }
+            Err(e) => {
+                println!("{} Warning: Could not read state file to revert user allocations: {}",
+                    "⚠".bright_yellow().bold(), e);
+            }
+        }
+    }
 
     // Remove systemd configuration file
     if systemd_conf_path.exists() {
