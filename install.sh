@@ -56,16 +56,51 @@ if ! command -v systemctl &> /dev/null; then
     MISSING_DEPS+=("systemd")
 fi
 
-if ! command -v pkexec &> /dev/null; then
-    MISSING_DEPS+=("policykit-1 or polkit")
-fi
-
+# Check if systemd is missing (critical dependency)
 if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
     echo -e "${RED}Error: Missing required dependencies:${NC}"
     for dep in "${MISSING_DEPS[@]}"; do
         echo "  - $dep"
     done
     exit 1
+fi
+
+# Check for PolicyKit and offer to install if missing
+if ! command -v pkexec &> /dev/null; then
+    echo -e "${YELLOW}PolicyKit (pkexec) not found${NC}"
+    echo
+    echo "PolicyKit is required to allow regular users to manage their systemd user slices"
+    echo "without requiring full root access. This enables users to safely request and"
+    echo "release CPU and memory resources for their own sessions."
+    echo
+    read -p "Would you like to install PolicyKit now? (y/n): " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Installing PolicyKit...${NC}"
+        echo "Running: apt-get update"
+        apt-get update || {
+            echo -e "${RED}Error: Failed to run apt-get update${NC}"
+            exit 1
+        }
+
+        echo "Running: apt install -y policykit-1"
+        apt install -y policykit-1 || {
+            echo -e "${RED}Error: Failed to install policykit-1${NC}"
+            echo "You may need to install it manually or use a different package manager."
+            exit 1
+        }
+
+        echo -e "${GREEN}✓ PolicyKit installed successfully${NC}"
+        echo
+    else
+        echo -e "${RED}Error: PolicyKit is required for fairshare to function${NC}"
+        echo "Please install it manually:"
+        echo "  apt install policykit-1     # Debian/Ubuntu"
+        echo "  dnf install polkit          # Fedora/RHEL"
+        echo "  pacman -S polkit            # Arch Linux"
+        exit 1
+    fi
 fi
 
 echo -e "${GREEN}All dependencies found${NC}"
