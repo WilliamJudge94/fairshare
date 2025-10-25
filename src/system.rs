@@ -3,6 +3,7 @@ use std::io;
 use sysinfo::System;
 use colored::*;
 use comfy_table::{Table, presets::UTF8_FULL, modifiers::UTF8_ROUND_CORNERS, Cell, Color};
+use crate::state;
 
 pub struct SystemTotals {
     pub total_mem_gb: f64,
@@ -31,6 +32,30 @@ pub fn get_system_totals() -> SystemTotals {
 }
 
 pub fn get_user_allocations() -> io::Result<Vec<UserAlloc>> {
+    // Read allocations from shared state file
+    let state_allocations = state::read_allocations()
+        .map_err(|e| io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to read state file: {}", e)
+        ))?;
+
+    // Convert state allocations to UserAlloc format
+    let mut allocations = vec![];
+    for (uid, alloc) in state_allocations {
+        allocations.push(UserAlloc {
+            uid,
+            cpu_quota: (alloc.cpu_cores as f64) * 100.0, // Convert cores to percentage
+            mem_bytes: (alloc.mem_gb as u64) * 1_000_000_000, // Convert GB to bytes
+        });
+    }
+
+    Ok(allocations)
+}
+
+// Legacy function: get allocations by querying systemd directly
+// Kept for reference and potential fallback
+#[allow(dead_code)]
+fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
     let output = Command::new("systemctl")
         .args(["list-units", "--type=slice", "--all", "--no-legend", "--plain"])
         .output()
