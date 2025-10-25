@@ -12,7 +12,7 @@ use crate::state;
 
 /// Get the UID of the user who invoked pkexec, or the current user if not run via pkexec.
 /// When run via pkexec, the PKEXEC_UID environment variable contains the original user's UID.
-fn get_calling_user_uid() -> io::Result<u32> {
+pub fn get_calling_user_uid() -> io::Result<u32> {
     // First check if we're running via pkexec
     if let Ok(pkexec_uid_str) = env::var("PKEXEC_UID") {
         pkexec_uid_str.parse::<u32>()

@@ -148,12 +148,29 @@ pub fn check_request(
     allocations: &[UserAlloc],
     req_cpu: u32,
     req_mem_gb: &str,
+    requesting_user_uid: Option<&str>,
 ) -> bool {
+    // Calculate currently used resources from all users
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
     let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
 
-    let available_cpu = totals.total_cpu as f64 - used_cpu;
-    let available_mem = totals.total_mem_gb - used_mem;
+    // If the requesting user already has an allocation, subtract it from used resources
+    // This allows us to check if the NET INCREASE fits, not the entire new request
+    let (adjusted_used_cpu, adjusted_used_mem) = if let Some(uid) = requesting_user_uid {
+        let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
+        if let Some(alloc) = current_user_alloc {
+            let current_cpu = alloc.cpu_quota / 100.0;
+            let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
+            (used_cpu - current_cpu, used_mem - current_mem)
+        } else {
+            (used_cpu, used_mem)
+        }
+    } else {
+        (used_cpu, used_mem)
+    };
+
+    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu;
+    let available_mem = totals.total_mem_gb - adjusted_used_mem;
     let req_mem = parse_mem_gb(req_mem_gb);
 
     req_cpu as f64 <= available_cpu && req_mem <= available_mem
@@ -300,7 +317,7 @@ mod tests {
         ];
 
         // Request 2 CPUs and 4 GB - should be allowed
-        assert!(check_request(&totals, &allocations, 2, "4"));
+        assert!(check_request(&totals, &allocations, 2, "4", None));
     }
 
     #[test]
@@ -318,7 +335,7 @@ mod tests {
         ];
 
         // Request 4 CPUs when only 2 are available - should fail
-        assert!(!check_request(&totals, &allocations, 4, "4"));
+        assert!(!check_request(&totals, &allocations, 4, "4", None));
     }
 
     #[test]
@@ -336,7 +353,7 @@ mod tests {
         ];
 
         // Request 8 GB when only 4 GB available - should fail
-        assert!(!check_request(&totals, &allocations, 2, "8"));
+        assert!(!check_request(&totals, &allocations, 2, "8", None));
     }
 
     #[test]
@@ -360,10 +377,10 @@ mod tests {
 
         // 6 CPUs used, 12 GB used
         // Request 5 CPUs and 10 GB - should be allowed (10 available, 20 available)
-        assert!(check_request(&totals, &allocations, 5, "10"));
+        assert!(check_request(&totals, &allocations, 5, "10", None));
 
         // Request 12 CPUs - should fail (only 10 available)
-        assert!(!check_request(&totals, &allocations, 12, "8"));
+        assert!(!check_request(&totals, &allocations, 12, "8", None));
     }
 
     #[test]
@@ -381,7 +398,47 @@ mod tests {
         ];
 
         // Request exactly what's available
-        assert!(check_request(&totals, &allocations, 4, "8"));
+        assert!(check_request(&totals, &allocations, 4, "8", None));
+    }
+
+    #[test]
+    fn test_check_request_user_modifying_own_allocation() {
+        // Scenario: User has 9GB, wants to increase to 10GB, only 2GB free
+        // Should succeed because net increase is 1GB (< 2GB available)
+        let totals = SystemTotals {
+            total_mem_gb: 16.0,
+            total_cpu: 8,
+        };
+        let allocations = vec![
+            UserAlloc {
+                uid: "1000".to_string(),
+                cpu_quota: 400.0,  // 4 CPUs
+                mem_bytes: 9_000_000_000,  // 9 GB
+            },
+            UserAlloc {
+                uid: "1001".to_string(),
+                cpu_quota: 200.0,  // 2 CPUs
+                mem_bytes: 5_000_000_000,  // 5 GB
+            },
+        ];
+
+        // User 1000: Total used: 6 CPUs, 14 GB. Available: 2 CPUs, 2 GB
+        // User 1000 requests 5 CPUs and 10 GB (increase of 1 CPU and 1 GB)
+        // Without considering existing allocation, this would fail (2 < 5, 2 < 10)
+        // With delta calculation: needs 1 more CPU and 1 more GB - should succeed
+        assert!(check_request(&totals, &allocations, 5, "10", Some("1000")));
+
+        // User 1001 trying to request 3 CPUs and 3 GB (decrease)
+        // Should definitely succeed as this is a decrease
+        assert!(check_request(&totals, &allocations, 3, "3", Some("1001")));
+
+        // New user 1002 requesting 1 CPU and 1 GB (no existing allocation)
+        // Should succeed with available resources
+        assert!(check_request(&totals, &allocations, 1, "1", Some("1002")));
+
+        // User 1000 requesting 20 CPUs (too much even with delta)
+        // Current: 4 CPUs. Request: 20 CPUs. Net: +16 CPUs. Available: 2 CPUs. Should fail.
+        assert!(!check_request(&totals, &allocations, 20, "10", Some("1000")));
     }
 
     #[test]

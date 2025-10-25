@@ -35,7 +35,13 @@ fn main() {
                 }
             };
 
-            if !check_request(&totals, &allocations, *cpu, &mem.to_string()) {
+            // Get the calling user's UID to check if they have an existing allocation
+            let calling_uid = match systemd::get_calling_user_uid() {
+                Ok(uid) => Some(uid.to_string()),
+                Err(_) => None,
+            };
+
+            if !check_request(&totals, &allocations, *cpu, &mem.to_string(), calling_uid.as_deref()) {
                 eprintln!("{} {}", "✗".red().bold(), "Request exceeds available system resources.".red());
                 std::process::exit(1);
             }
