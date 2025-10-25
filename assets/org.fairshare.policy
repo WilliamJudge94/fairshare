@@ -6,14 +6,14 @@
   <vendor_url>https://github.com/yourorg/fairshare</vendor_url>
 
   <action id="org.fairshare.manage-resources">
-    <description>Manage CPU and memory resources</description>
-    <message>Authentication is required to manage system resources</message>
+    <description>Manage user resource allocations</description>
+    <message>Authentication is required to manage resource allocations</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>yes</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/fairshare</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/fairshare-bin</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">false</annotate>
   </action>
 </policyconfig>
