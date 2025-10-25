@@ -74,10 +74,11 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     }
 
     // Write allocation to shared state file
-    if let Err(e) = state::write_allocation(cpu, mem) {
-        eprintln!("{} Warning: Failed to update state file: {}", "⚠".bright_yellow().bold(), e);
-        // Don't fail the whole operation if state file update fails
-    }
+    // NOTE: Commented out to test querying systemd directly instead
+    // if let Err(e) = state::write_allocation(cpu, mem) {
+    //     eprintln!("{} Warning: Failed to update state file: {}", "⚠".bright_yellow().bold(), e);
+    //     // Don't fail the whole operation if state file update fails
+    // }
 
     Ok(())
 }
@@ -100,10 +101,11 @@ pub fn release_user_limits() -> io::Result<()> {
     }
 
     // Remove allocation from shared state file
-    if let Err(e) = state::remove_allocation() {
-        eprintln!("{} Warning: Failed to update state file: {}", "⚠".bright_yellow().bold(), e);
-        // Don't fail the whole operation if state file update fails
-    }
+    // NOTE: Commented out to test querying systemd directly instead
+    // if let Err(e) = state::remove_allocation() {
+    //     eprintln!("{} Warning: Failed to update state file: {}", "⚠".bright_yellow().bold(), e);
+    //     // Don't fail the whole operation if state file update fails
+    // }
 
     Ok(())
 }
