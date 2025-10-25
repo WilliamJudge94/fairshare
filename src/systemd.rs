@@ -5,16 +5,46 @@ use std::path::Path;
 use users;
 use colored::*;
 
+// Import constants from cli module for validation
+use crate::cli::{MAX_CPU, MAX_MEM};
+
 pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
+    // Validate inputs before operations
+    if cpu > MAX_CPU {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU)
+        ));
+    }
+    if mem > MAX_MEM {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM)
+        ));
+    }
+
     let uid = users::get_current_uid();
-    let mem_bytes = (mem as u64) * 1_000_000_000; // Convert GB to bytes
+
+    // Convert GB to bytes with overflow checking
+    let mem_bytes = (mem as u64).checked_mul(1_000_000_000)
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Memory value {} GB is too large and would cause overflow when converting to bytes", mem)
+        ))?;
+
+    // Calculate CPU quota with overflow checking
+    let cpu_quota = cpu.checked_mul(100)
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} is too large and would cause overflow when calculating quota", cpu)
+        ))?;
 
     let status = if uid == 0 {
         // Root user: manage system-wide user slices
         Command::new("systemctl")
             .arg("set-property")
             .arg(&format!("user-{}.slice", uid))
-            .arg(format!("CPUQuota={}%", cpu * 100))
+            .arg(format!("CPUQuota={}%", cpu_quota))
             .arg(format!("MemoryMax={}", mem_bytes))
             .status()?
     } else {
@@ -24,7 +54,7 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
             .arg("set-property")
             .arg("--")
             .arg("-.slice")
-            .arg(format!("CPUQuota={}%", cpu * 100))
+            .arg(format!("CPUQuota={}%", cpu_quota))
             .arg(format!("MemoryMax={}", mem_bytes))
             .status()?
     };
@@ -134,16 +164,44 @@ pub fn show_user_info() -> io::Result<()> {
 /// Default minimum: 1 CPU core and 2G RAM per user.
 /// Each user can request additional resources up to system limits.
 pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
+    // Validate inputs before operations
+    if cpu > MAX_CPU {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU)
+        ));
+    }
+    if mem > MAX_MEM {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM)
+        ));
+    }
+
     let dir = Path::new("/etc/systemd/system/user-.slice.d");
     let conf_path = dir.join("00-defaults.conf");
 
     fs::create_dir_all(dir)?;
     let mut f = fs::File::create(&conf_path)?;
-    let mem_bytes = (mem as u64) * 1_000_000_000; // Convert GB to bytes
+
+    // Convert GB to bytes with overflow checking
+    let mem_bytes = (mem as u64).checked_mul(1_000_000_000)
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Memory value {} GB is too large and would cause overflow when converting to bytes", mem)
+        ))?;
+
+    // Calculate CPU quota with overflow checking
+    let cpu_quota = cpu.checked_mul(100)
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} is too large and would cause overflow when calculating quota", cpu)
+        ))?;
+
     writeln!(
         f,
         "[Slice]\nCPUQuota={}%\nMemoryMax={}\n",
-        cpu * 100, mem_bytes
+        cpu_quota, mem_bytes
     )?;
 
     println!("{} Created {}", "✓".green().bold(), conf_path.display().to_string().bright_white());
@@ -151,12 +209,19 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
     Command::new("systemctl").arg("daemon-reload").status()?;
     println!("{} {}", "✓".green().bold(), "Reloaded systemd daemon".bright_white());
 
+    // Calculate max caps with overflow checking
+    let max_cpu_cap = cpu.checked_mul(10)
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} is too large for calculating max cap (cpu * 10 would overflow)", cpu)
+        ))?;
+
     fs::create_dir_all("/etc/fairshare")?;
     let mut policy = fs::File::create("/etc/fairshare/policy.toml")?;
     writeln!(
         policy,
         "[defaults]\ncpu = {}\nmem = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
-        cpu, mem, cpu * 10, mem
+        cpu, mem, max_cpu_cap, mem
     )?;
     println!("{} {}", "✓".green().bold(), "Created /etc/fairshare/policy.toml".bright_white());
 
@@ -227,21 +292,23 @@ mod tests {
     fn test_admin_setup_creates_valid_config_content() {
         // This test validates the configuration format without actually
         // creating files on the system
-        let cpu = 2;
-        let mem = 4;
-        let mem_bytes = (mem as u64) * 1_000_000_000;
+        let cpu: u32 = 2;
+        let mem: u32 = 4;
+        let mem_bytes = (mem as u64).checked_mul(1_000_000_000).unwrap();
+        let cpu_quota = cpu.checked_mul(100).unwrap();
 
         let expected_slice_config = format!(
             "[Slice]\nCPUQuota={}%\nMemoryMax={}\n",
-            cpu * 100,
+            cpu_quota,
             mem_bytes
         );
 
         assert_eq!(expected_slice_config, "[Slice]\nCPUQuota=200%\nMemoryMax=4000000000\n");
 
+        let max_cpu_cap = cpu.checked_mul(10).unwrap();
         let expected_policy = format!(
             "[defaults]\ncpu = {}\nmem = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
-            cpu, mem, cpu * 10, mem
+            cpu, mem, max_cpu_cap, mem
         );
 
         assert!(expected_policy.contains("[defaults]"));
@@ -250,30 +317,136 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_conversion_to_bytes() {
-        // Verify memory conversion logic
-        let mem_gb = 8;
-        let mem_bytes = (mem_gb as u64) * 1_000_000_000;
+    fn test_memory_conversion_to_bytes_safe() {
+        // Verify memory conversion logic with overflow checking
+        let mem_gb = 8u32;
+        let mem_bytes = (mem_gb as u64).checked_mul(1_000_000_000).unwrap();
         assert_eq!(mem_bytes, 8_000_000_000);
 
-        let mem_gb = 16;
-        let mem_bytes = (mem_gb as u64) * 1_000_000_000;
+        let mem_gb = 16u32;
+        let mem_bytes = (mem_gb as u64).checked_mul(1_000_000_000).unwrap();
         assert_eq!(mem_bytes, 16_000_000_000);
+
+        // Test maximum valid value
+        let mem_gb = 10000u32; // MAX_MEM
+        let mem_bytes = (mem_gb as u64).checked_mul(1_000_000_000).unwrap();
+        assert_eq!(mem_bytes, 10_000_000_000_000);
     }
 
     #[test]
-    fn test_cpu_quota_calculation() {
-        // Verify CPU quota percentage calculation
-        let cpu = 1;
-        let quota = cpu * 100;
+    fn test_cpu_quota_calculation_safe() {
+        // Verify CPU quota percentage calculation with overflow checking
+        let cpu = 1u32;
+        let quota = cpu.checked_mul(100).unwrap();
         assert_eq!(quota, 100);
 
-        let cpu = 4;
-        let quota = cpu * 100;
+        let cpu = 4u32;
+        let quota = cpu.checked_mul(100).unwrap();
         assert_eq!(quota, 400);
 
-        let cpu = 8;
-        let quota = cpu * 100;
+        let cpu = 8u32;
+        let quota = cpu.checked_mul(100).unwrap();
         assert_eq!(quota, 800);
+
+        // Test maximum valid value
+        let cpu = 1000u32; // MAX_CPU
+        let quota = cpu.checked_mul(100).unwrap();
+        assert_eq!(quota, 100_000);
+    }
+
+    #[test]
+    fn test_memory_overflow_detection() {
+        // Test that very large memory values that would overflow are handled
+        // u64::MAX / 1_000_000_000 = 18_446_744_073 (approximately)
+        // u32::MAX (4_294_967_295) * 1_000_000_000 = 4_294_967_295_000_000_000 which is < u64::MAX
+        // So u32::MAX won't overflow when cast to u64 and multiplied
+        let huge_mem = u32::MAX; // 4_294_967_295 GB
+        let result = (huge_mem as u64).checked_mul(1_000_000_000);
+        // This should NOT overflow because u32::MAX * 1 billion < u64::MAX
+        assert!(result.is_some(), "u32::MAX GB should not overflow when converted to bytes");
+
+        // To actually test overflow, we need a u64 value larger than u64::MAX / 1_000_000_000
+        let overflow_mem = 18_446_744_074u64; // Just above safe limit
+        let result = overflow_mem.checked_mul(1_000_000_000);
+        assert!(result.is_none(), "Expected overflow for value above u64::MAX / 1 billion");
+    }
+
+    #[test]
+    fn test_cpu_quota_overflow_detection() {
+        // Test that very large CPU values that would overflow are handled
+        // u32::MAX * 100 would overflow u32
+        let huge_cpu = u32::MAX;
+        let result = huge_cpu.checked_mul(100);
+        assert!(result.is_none(), "Expected overflow for u32::MAX * 100");
+    }
+
+    #[test]
+    fn test_max_cpu_cap_overflow_detection() {
+        // Test that CPU * 10 overflow is detected
+        // u32::MAX / 10 = 429_496_729 (approximately)
+        // So values above this should fail
+        let large_cpu = u32::MAX;
+        let result = large_cpu.checked_mul(10);
+        assert!(result.is_none(), "Expected overflow for u32::MAX * 10");
+
+        // Test a value that should work
+        let safe_cpu = 100u32;
+        let result = safe_cpu.checked_mul(10);
+        assert_eq!(result, Some(1000));
+    }
+
+    #[test]
+    fn test_boundary_values() {
+        // Test boundary conditions within valid range
+
+        // Minimum values
+        let min_cpu = 1u32;
+        let min_mem = 1u32;
+        assert!(min_cpu.checked_mul(100).is_some());
+        assert!((min_mem as u64).checked_mul(1_000_000_000).is_some());
+
+        // Maximum valid values
+        let max_cpu = 1000u32; // MAX_CPU
+        let max_mem = 10000u32; // MAX_MEM
+        assert!(max_cpu.checked_mul(100).is_some());
+        assert!((max_mem as u64).checked_mul(1_000_000_000).is_some());
+        assert!(max_cpu.checked_mul(10).is_some()); // For max_caps calculation
+    }
+
+    #[test]
+    fn test_near_overflow_values() {
+        // Test values near overflow boundaries
+
+        // For memory: u64::MAX is 18_446_744_073_709_551_615
+        // Dividing by 1_000_000_000 gives max safe value of ~18_446_744_073
+        // Our MAX_MEM (10000) is well within this range
+
+        // Test a value that's within bounds
+        let safe_mem = 18_000_000_000u64; // 18 billion GB - still under u64::MAX / 1 billion
+        let result = safe_mem.checked_mul(1_000_000_000);
+        assert!(result.is_some(), "18 billion GB should not overflow");
+
+        // Test a value that will overflow
+        let overflow_mem = 19_000_000_000u64; // 19 billion GB - will overflow
+        let result = overflow_mem.checked_mul(1_000_000_000);
+        assert!(result.is_none(), "Expected overflow for 19 billion GB");
+
+        // For CPU quota: u32::MAX is 4_294_967_295
+        // Dividing by 100 gives max safe value of 42_949_672
+        // Our MAX_CPU (1000) is well within this range
+        let near_overflow_cpu = 42_949_673u32; // Above safe limit
+        let result = near_overflow_cpu.checked_mul(100);
+        assert!(result.is_none(), "Expected overflow for CPU quota");
+    }
+
+    #[test]
+    fn test_zero_values() {
+        // Test that zero values are handled correctly (though they should be
+        // rejected by input validation in practice)
+        let cpu = 0u32;
+        let mem = 0u32;
+
+        assert_eq!(cpu.checked_mul(100), Some(0));
+        assert_eq!((mem as u64).checked_mul(1_000_000_000), Some(0));
     }
 }
