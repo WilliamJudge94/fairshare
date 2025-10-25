@@ -254,18 +254,33 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
             ]);
 
         for a in allocations {
-            let cpu_cores = a.cpu_quota / 100.0;
-            let mem_gb = a.mem_bytes as f64 / 1_000_000_000.0;
             let username = get_username_from_uid(&a.uid)
                 .unwrap_or_else(|| format!("({})", a.uid));
 
-            user_table.add_row(vec![
-                Cell::new(username).fg(Color::White),
-                Cell::new(&a.uid).fg(Color::White),
-                Cell::new(format!("{:.1}%", a.cpu_quota)).fg(Color::Yellow),
-                Cell::new(format!("{:.2}", cpu_cores)).fg(Color::Yellow),
-                Cell::new(format!("{:.2}", mem_gb)).fg(Color::Yellow),
-            ]);
+            // Check if user has no custom allocations (both CPU and Memory are 0)
+            let has_no_allocation = a.cpu_quota == 0.0 && a.mem_bytes == 0;
+
+            if has_no_allocation {
+                // Display "Not Set" for users without custom resource limits
+                user_table.add_row(vec![
+                    Cell::new(username).fg(Color::White),
+                    Cell::new(&a.uid).fg(Color::White),
+                    Cell::new("Not Set").fg(Color::DarkGrey),
+                    Cell::new("Not Set").fg(Color::DarkGrey),
+                    Cell::new("Not Set").fg(Color::DarkGrey),
+                ]);
+            } else {
+                // Display actual values for users with custom allocations
+                let cpu_cores = a.cpu_quota / 100.0;
+                let mem_gb = a.mem_bytes as f64 / 1_000_000_000.0;
+                user_table.add_row(vec![
+                    Cell::new(username).fg(Color::White),
+                    Cell::new(&a.uid).fg(Color::White),
+                    Cell::new(format!("{:.1}%", a.cpu_quota)).fg(Color::Yellow),
+                    Cell::new(format!("{:.2}", cpu_cores)).fg(Color::Yellow),
+                    Cell::new(format!("{:.2}", mem_gb)).fg(Color::Yellow),
+                ]);
+            }
         }
 
         println!("{}", user_table);
