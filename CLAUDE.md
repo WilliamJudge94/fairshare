@@ -8,7 +8,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Installation
 
-### Building and Installing
+### Quick Install (Recommended)
+
+```bash
+# Download and run the installer (detects local build or downloads latest release)
+sudo bash install.sh
+```
+
+The install script will:
+- Detect if PolicyKit is installed (automatically installs it if missing on apt/dnf/pacman systems)
+- Download the latest release binary or use local build if available
+- Install the binary and wrapper script
+- Set up PolicyKit policies
+- Configure default resource limits
+
+### Building and Installing Manually
 
 ```bash
 # Build release binary
@@ -16,6 +30,11 @@ cargo build --release
 
 # Install wrapper and binary (requires sudo)
 sudo make release
+
+# Ensure PolicyKit is installed (required)
+# Debian/Ubuntu: sudo apt install policykit-1
+# Fedora/RHEL: sudo dnf install polkit
+# Arch Linux: sudo pacman -S polkit
 
 # Setup admin defaults and PolicyKit policies (REQUIRED for user commands)
 sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4
@@ -256,6 +275,14 @@ The tool uses these `systemctl` commands (when run via pkexec, these operate at 
 - `comfy-table` (7.1) - Formatted table display
 
 ## Common Issues
+
+### PolicyKit Not Installed
+- If `pkexec` is not found, install PolicyKit:
+  - Debian/Ubuntu: `sudo apt update && sudo apt install -y policykit-1`
+  - Fedora/RHEL: `sudo dnf install -y polkit`
+  - Arch Linux: `sudo pacman -S --noconfirm polkit`
+- The install script (`install.sh`) automatically detects and installs PolicyKit if missing
+- After installing PolicyKit, fairshare should work immediately
 
 ### Systemd Commands Fail
 - Ensure the wrapper script is installed: `which fairshare` should show `/usr/local/bin/fairshare`

@@ -42,6 +42,7 @@ sudo bash install.sh
 ```
 
 The installer will:
+- Detect if PolicyKit is installed (automatically installs it if missing)
 - Download the latest release binary for your architecture
 - Install the binary and wrapper script
 - Set up PolicyKit policies
@@ -58,7 +59,7 @@ If you prefer to build from source or are developing fairshare:
 # 1. Build the release binary
 cargo build --release
 
-# 2. Run the installer (it will detect the local build)
+# 2. Run the installer (it will detect the local build and install PolicyKit if needed)
 sudo bash install.sh
 ```
 
@@ -68,6 +69,16 @@ Alternatively, use the Makefile for manual installation:
 # Build and install binary and wrapper
 cargo build --release
 sudo make release
+
+# Ensure PolicyKit is installed (required for fairshare to work)
+# Debian/Ubuntu
+sudo apt install policykit-1
+
+# Fedora/RHEL
+sudo dnf install polkit
+
+# Arch Linux
+sudo pacman -S polkit
 
 # Setup admin defaults and PolicyKit policies (REQUIRED)
 sudo fairshare admin setup --cpu 1 --mem 2
@@ -84,7 +95,7 @@ The wrapper script automatically detects whether you're running an admin command
 
 ### Requirements
 - **Linux** with systemd (including user session support)
-- **PolicyKit (polkit)** for privilege escalation
+- **PolicyKit (polkit)** for privilege escalation (automatically installed by the installer if missing)
 - **Rust 1.70+** (only needed for building from source)
 
 ### Uninstall
@@ -208,6 +219,22 @@ fairshare uses systemd as the authoritative source of truth for all resource all
 4. **Privilege Escalation**: Uses pkexec (PolicyKit) to allow users to modify their own slices without full root access
 
 ## Troubleshooting
+
+### PolicyKit (pkexec) not found
+If you see an error that `pkexec` is not found, PolicyKit is not installed. Install it using:
+
+```bash
+# Debian/Ubuntu
+sudo apt update && sudo apt install -y policykit-1
+
+# Fedora/RHEL
+sudo dnf install -y polkit
+
+# Arch Linux
+sudo pacman -S --noconfirm polkit
+```
+
+After installing PolicyKit, fairshare should work immediately (no need to reinstall fairshare).
 
 ### Commands fail with "authentication required" or "permission denied"
 If PolicyKit authentication keeps prompting for password, verify that admin setup completed successfully:
