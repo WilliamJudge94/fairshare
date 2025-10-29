@@ -155,7 +155,7 @@ else
     mkdir -p "$TEMP_DIR/assets"
 
     for file in fairshare-wrapper.sh org.fairshare.policy 50-fairshare.rules 50-fairshare.pkla; do
-        if ! curl -L "https://raw.githubusercontent.com/$REPO/$LATEST_RELEASE/assets/$file" -o "$TEMP_DIR/assets/$file" 2>/dev/null; then
+        if ! curl -L "https://raw.github.com/$REPO/$LATEST_RELEASE/assets/$file" -o "$TEMP_DIR/assets/$file" 2>/dev/null; then
             echo -e "${YELLOW}Warning: Could not download $file${NC}"
         fi
     done
@@ -296,7 +296,7 @@ if [ -t 0 ]; then
 else
     echo "Script is being piped - skipping automatic execution."
     echo "Please run the commands above manually, or download and run the script directly:"
-    echo "  wget https://raw.githubusercontent.com/$REPO/main/install.sh"
+    echo "  wget https://raw.github.com/$REPO/main/install.sh"
     echo "  bash install.sh"
     REPLY="n"
 fi
