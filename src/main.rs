@@ -75,15 +75,17 @@ fn main() {
         }
 
         Commands::Admin { sub } => match sub {
-            AdminSubcommands::Setup { cpu, mem } => {
-                if let Err(e) = admin_setup_defaults(*cpu, *mem) {
+            AdminSubcommands::Setup { cpu, mem, cpu_reserve, mem_reserve } => {
+                if let Err(e) = admin_setup_defaults(*cpu, *mem, *cpu_reserve, *mem_reserve) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Setup failed".red(), e);
                     std::process::exit(1);
                 }
-                println!("{} Global defaults applied: {} {}",
+                println!("{} Global defaults applied: {} {} (Reserves: {} CPUs, {}G RAM)",
                     "✓".green().bold(),
-                    format!("CPUQuota={}%", cpu).bright_yellow(),
-                    format!("MemoryMax={}G", mem).bright_yellow()
+                    format!("CPUQuota={}%", cpu * 100).bright_yellow(),
+                    format!("MemoryMax={}G", mem).bright_yellow(),
+                    format!("{}", cpu_reserve).bright_cyan(),
+                    format!("{}", mem_reserve).bright_cyan()
                 );
             }
             AdminSubcommands::Uninstall { force } => {
@@ -116,8 +118,8 @@ fn main() {
                     "Global defaults uninstalled. System reverted to standard resource limits.".green()
                 );
             }
-            AdminSubcommands::Reset { cpu, mem, force } => {
-                if let Err(e) = admin_reset(*cpu, *mem, *force) {
+            AdminSubcommands::Reset { cpu, mem, cpu_reserve, mem_reserve, force } => {
+                if let Err(e) = admin_reset(*cpu, *mem, *cpu_reserve, *mem_reserve, *force) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Reset failed".red(), e);
                     std::process::exit(1);
                 }

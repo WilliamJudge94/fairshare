@@ -1,9 +1,28 @@
 use std::process::Command;
 use std::io;
+use std::fs;
 use sysinfo::System;
 use colored::*;
 use comfy_table::{Table, presets::UTF8_FULL, modifiers::UTF8_ROUND_CORNERS, Cell, Color};
 use users::{get_user_by_uid, uid_t};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct PolicyConfig {
+    defaults: PolicyDefaults,
+}
+
+#[derive(Deserialize)]
+struct PolicyDefaults {
+    #[allow(dead_code)]
+    cpu: u32,
+    #[allow(dead_code)]
+    mem: u32,
+    #[serde(default)]
+    cpu_reserve: u32,
+    #[serde(default)]
+    mem_reserve: u32,
+}
 
 pub struct SystemTotals {
     pub total_mem_gb: f64,
@@ -14,6 +33,38 @@ pub struct UserAlloc {
     pub uid: String,
     pub cpu_quota: f64,
     pub mem_bytes: u64,
+}
+
+/// Read the system CPU reserve from policy.toml
+/// Returns 0 if the file doesn't exist or can't be read
+pub fn get_system_cpu_reserve() -> u32 {
+    let policy_path = "/etc/fairshare/policy.toml";
+
+    match fs::read_to_string(policy_path) {
+        Ok(contents) => {
+            match toml::from_str::<PolicyConfig>(&contents) {
+                Ok(config) => config.defaults.cpu_reserve,
+                Err(_) => 0,
+            }
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Read the system memory reserve from policy.toml
+/// Returns 0 if the file doesn't exist or can't be read
+pub fn get_system_mem_reserve() -> u32 {
+    let policy_path = "/etc/fairshare/policy.toml";
+
+    match fs::read_to_string(policy_path) {
+        Ok(contents) => {
+            match toml::from_str::<PolicyConfig>(&contents) {
+                Ok(config) => config.defaults.mem_reserve,
+                Err(_) => 0,
+            }
+        }
+        Err(_) => 0,
+    }
 }
 
 pub fn get_system_totals() -> SystemTotals {
@@ -150,6 +201,10 @@ pub fn check_request(
     req_mem_gb: &str,
     requesting_user_uid: Option<&str>,
 ) -> bool {
+    // Get system reserves
+    let cpu_reserve = get_system_cpu_reserve() as f64;
+    let mem_reserve = get_system_mem_reserve() as f64;
+
     // Calculate currently used resources from all users
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
     let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
@@ -169,8 +224,9 @@ pub fn check_request(
         (used_cpu, used_mem)
     };
 
-    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu;
-    let available_mem = totals.total_mem_gb - adjusted_used_mem;
+    // Subtract the system reserves from available resources
+    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
+    let available_mem = totals.total_mem_gb - adjusted_used_mem - mem_reserve;
     let req_mem = parse_mem_gb(req_mem_gb);
 
     req_cpu as f64 <= available_cpu && req_mem <= available_mem
@@ -194,10 +250,13 @@ pub fn get_username_from_uid(uid_str: &str) -> Option<String> {
 }
 
 pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
+    let cpu_reserve = get_system_cpu_reserve() as f64;
+    let mem_reserve = get_system_mem_reserve() as f64;
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
     let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
-    let available_cpu = totals.total_cpu as f64 - used_cpu;
-    let available_mem = totals.total_mem_gb - used_mem;
+    // Subtract the system reserves from available resources
+    let available_cpu = totals.total_cpu as f64 - used_cpu - cpu_reserve;
+    let available_mem = totals.total_mem_gb - used_mem - mem_reserve;
 
     // System overview table
     println!("{}", "╔═══════════════════════════════════════╗".bright_cyan());
@@ -220,6 +279,25 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
         Cell::new(format!("{}", totals.total_cpu)).fg(Color::White),
         Cell::new(format!("{:.2}", totals.total_mem_gb)).fg(Color::White),
     ]);
+
+    // Show system reserves if configured
+    if cpu_reserve > 0.0 || mem_reserve > 0.0 {
+        let cpu_reserve_str = if cpu_reserve > 0.0 {
+            format!("{:.2}", cpu_reserve)
+        } else {
+            "-".to_string()
+        };
+        let mem_reserve_str = if mem_reserve > 0.0 {
+            format!("{:.2}", mem_reserve)
+        } else {
+            "-".to_string()
+        };
+        overview_table.add_row(vec![
+            Cell::new("Reserved (System)").fg(Color::Magenta),
+            Cell::new(cpu_reserve_str).fg(Color::Magenta),
+            Cell::new(mem_reserve_str).fg(Color::Magenta),
+        ]);
+    }
 
     overview_table.add_row(vec![
         Cell::new("Allocated").fg(Color::Yellow),

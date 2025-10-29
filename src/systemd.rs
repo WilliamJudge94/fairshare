@@ -242,9 +242,9 @@ fn install_policykit() -> io::Result<()> {
 }
 
 /// Setup global default resource allocations for all users.
-/// Default minimum: 1 CPU core and 2G RAM per user.
+/// Default minimum: 1 CPU core and 2G RAM per user, with 2 CPU and 4G RAM system reserves.
 /// Each user can request additional resources up to system limits.
-pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
+pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u32) -> io::Result<()> {
     // Check if PolicyKit is installed first
     print!("{} ", "→".bright_white());
     print!("{}", "Checking PolicyKit installation...".bright_white());
@@ -335,8 +335,8 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32) -> io::Result<()> {
     let mut policy = fs::File::create("/etc/fairshare/policy.toml")?;
     writeln!(
         policy,
-        "[defaults]\ncpu = {}\nmem = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
-        cpu, mem, max_cpu_cap, mem
+        "[defaults]\ncpu = {}\nmem = {}\ncpu_reserve = {}\nmem_reserve = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
+        cpu, mem, cpu_reserve, mem_reserve, max_cpu_cap, mem
     )?;
     println!("{} {}", "✓".green().bold(), "Created /etc/fairshare/policy.toml".bright_white());
 
@@ -667,7 +667,7 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
 
 /// Reset fairshare by performing a complete uninstall followed by setup with new defaults.
 /// This combines admin_uninstall_defaults() and admin_setup_defaults() into one operation.
-pub fn admin_reset(cpu: u32, mem: u32, force: bool) -> io::Result<()> {
+pub fn admin_reset(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u32, force: bool) -> io::Result<()> {
     // Show warning if not forced
     if !force {
         eprintln!("{} {}",
@@ -703,7 +703,7 @@ pub fn admin_reset(cpu: u32, mem: u32, force: bool) -> io::Result<()> {
     // Step 2: Setup
     println!("{} {}", "→".bright_cyan().bold(), "Step 2/2: Setting up new defaults...".bright_white());
     println!();
-    admin_setup_defaults(cpu, mem)?;
+    admin_setup_defaults(cpu, mem, cpu_reserve, mem_reserve)?;
     println!();
 
     println!("{}", "╔═══════════════════════════════════════╗".bright_green());
@@ -922,7 +922,7 @@ mod tests {
         // Test that admin_setup_defaults rejects CPU values exceeding MAX_CPU
         use crate::cli::MAX_CPU;
 
-        let result = super::admin_setup_defaults(MAX_CPU + 1, 2);
+        let result = super::admin_setup_defaults(MAX_CPU + 1, 2, 2, 4);
         assert!(result.is_err(), "Should reject CPU exceeding MAX_CPU");
 
         if let Err(e) = result {
@@ -937,7 +937,7 @@ mod tests {
         // Test that admin_setup_defaults rejects memory values exceeding MAX_MEM
         use crate::cli::MAX_MEM;
 
-        let result = super::admin_setup_defaults(2, MAX_MEM + 1);
+        let result = super::admin_setup_defaults(2, MAX_MEM + 1, 2, 4);
         assert!(result.is_err(), "Should reject memory exceeding MAX_MEM");
 
         if let Err(e) = result {
