@@ -12,6 +12,7 @@ On shared Linux systems, one user running a heavy workload can consume all avail
 
 fairshare allocates resources fairly across all users:
 - **Default**: Each user gets 1 CPU core and 2GB RAM by default
+- **Reserved**: System reserves resources for OS and background processes (2 CPUs, 4GB RAM by default)
 - **On-demand**: Users can request more resources when needed (up to 1000 CPU cores and 10000 GB RAM)
 - **Automatic**: The system grants requests only if resources are truly available
 - **Fair**: No user can monopolize the entire system
@@ -45,6 +46,7 @@ The installer will:
 - Install the binary and wrapper script
 - Set up PolicyKit policies
 - Configure default resource limits (1 CPU core, 2GB RAM per user)
+- Set system reserves (2 CPUs, 4GB RAM by default)
 
 ![Admin Setup](static/root-admin-setup.png)
 
@@ -151,12 +153,24 @@ fairshare release
 
 > **Note:** Admin commands must be run with `sudo`
 
-#### Set Default Limits
-Configure the default CPU and memory allocation for all users when they first log in. This also installs PolicyKit policies required for passwordless user operations.
+#### Set Default Limits and System Reserves
+Configure the default CPU and memory allocation for all users when they first log in, plus system reserves. This also installs PolicyKit policies required for passwordless user operations.
 
 ```bash
-sudo fairshare admin setup --cpu 1 --mem 2
+# Setup with defaults (1 CPU, 2GB per user, 2 CPU reserve, 4GB RAM reserve)
+sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4
+
+# Or use custom values
+sudo fairshare admin setup --cpu 2 --mem 4 --cpu-reserve 4 --mem-reserve 8
 ```
+
+**What Reserves Do:**
+System reserves ensure that CPU and memory are always available for the operating system and background processes. Users can only allocate up to (Total - Reserved) resources.
+
+Example on an 8 CPU, 16GB RAM system:
+- Total: 8 CPUs, 16GB
+- Reserved: 2 CPUs, 4GB (default)
+- Available for users: 6 CPUs, 12GB
 
 ![Admin Setup](static/root-admin-setup.png)
 

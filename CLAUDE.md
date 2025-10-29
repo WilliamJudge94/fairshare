@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-**fairshare** is a Rust-based systemd resource manager for multi-user Linux systems. It provides fair CPU and memory allocation management using systemd user slices, allowing users to request resources dynamically while preventing over-allocation.
+**fairshare** is a Rust-based systemd resource manager for multi-user Linux systems. It provides fair CPU and memory allocation management using systemd user slices, allowing users to request resources dynamically while preventing over-allocation. The system includes configurable CPU and memory reserves to ensure the operating system and background processes always have resources available.
 
 ## Installation
 
@@ -18,7 +18,7 @@ cargo build --release
 sudo make release
 
 # Setup admin defaults and PolicyKit policies (REQUIRED for user commands)
-sudo fairshare admin setup --cpu 1 --mem 2
+sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4
 ```
 
 ### Installation Paths
@@ -38,6 +38,10 @@ The wrapper script auto-detects the binary location, supporting both:
 - **Debug build**: `cargo build`
 - **Release build**: `cargo build --release`
 - **Install wrapper and binary**: `sudo make release` (installs to `/usr/local/bin/fairshare` and `/usr/local/libexec/fairshare-bin`)
+- **Build release binaries for distribution**:
+  - One-time setup: `sudo make setup-cross`
+  - Build x86_64 only: `make compile-x86_64`
+  - Build both architectures: `make compile-releases` (creates `releases/fairshare-x86_64` and `releases/fairshare-aarch64`)
 
 ### Testing
 - **Run all tests**: `cargo test`
@@ -57,7 +61,7 @@ The wrapper script auto-detects the binary location, supporting both:
 - **Request resources**: `fairshare request --cpu 4 --mem 8`
 - **Show user info**: `fairshare info`
 - **Release resources**: `fairshare release`
-- **Admin setup** (requires root): `sudo fairshare admin setup --cpu 1 --mem 2`
+- **Admin setup** (requires root): `sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4`
 
 **Note**: Regular user commands automatically use pkexec via the wrapper script at `/usr/local/bin/fairshare`. The real binary is at `/usr/local/libexec/fairshare-bin`. Admin commands require `sudo`.
 
@@ -95,17 +99,19 @@ The codebase is organized into four main modules:
 
 #### System Information (`system.rs`)
 - `get_system_totals()` - Returns total system CPU and memory (uses `sysinfo` crate)
+- `get_system_cpu_reserve()` - Reads CPU reserve from `/etc/fairshare/policy.toml` (returns 0 if not configured)
+- `get_system_mem_reserve()` - Reads memory reserve from `/etc/fairshare/policy.toml` (returns 0 if not configured)
 - `get_user_allocations()` - Queries systemd directly for all user slice allocations (systemd is the source of truth)
 - `get_user_allocations_from_systemd()` - Reads user slice properties via `systemctl list-units` and `systemctl show`
-- `check_request()` - Validates if requested resources are available using **delta-based checking** (considers existing user allocation)
-- `print_status()` - Displays formatted system and per-user resource overview
+- `check_request()` - Validates if requested resources are available using **delta-based checking** (considers existing user allocation and system reserves)
+- `print_status()` - Displays formatted system and per-user resource overview (includes reserve row if configured)
 
 #### Resource Management (`systemd.rs`)
 - `get_calling_user_uid()` - Retrieves the UID of the user who invoked pkexec (reads `PKEXEC_UID` environment variable)
 - `set_user_limits()` - Applies CPU quota and memory limits via `systemctl set-property` on the calling user's slice
 - `release_user_limits()` - Reverts limits back to defaults via `systemctl revert` on the calling user's slice
 - `show_user_info()` - Displays current user's resource allocation
-- `admin_setup_defaults()` - Creates systemd config at `/etc/systemd/system/user-.slice.d/00-defaults.conf` and installs PolicyKit policies
+- `admin_setup_defaults()` - Creates systemd config at `/etc/systemd/system/user-.slice.d/00-defaults.conf`, stores CPU/memory reserves in `/etc/fairshare/policy.toml`, and installs PolicyKit policies
 - `admin_uninstall_defaults()` - Removes admin configuration files, PolicyKit policies, and reloads systemd
 
 ### Resource Units
@@ -157,8 +163,20 @@ Created by `admin setup`:
    - Requires: `systemctl daemon-reload` after modification
 
 2. **`/etc/fairshare/policy.toml`**
-   - Policy configuration (currently placeholder for future features)
-   - Stores default CPU/memory and max caps
+   - Policy configuration storing system reserves and limits
+   - Stores default CPU/memory, system reserves (cpu_reserve, mem_reserve), and max caps
+   - Format example:
+     ```toml
+     [defaults]
+     cpu = 1
+     mem = 2
+     cpu_reserve = 2
+     mem_reserve = 4
+
+     [max_caps]
+     cpu = 10
+     mem = 2
+     ```
 
 ### Input Validation
 
@@ -181,8 +199,9 @@ The tool uses **pkexec** (PolicyKit) for privilege escalation, allowing regular 
 - Cannot affect other users' allocations
 
 **Root/Admin users**:
-- Run admin commands with `sudo` (e.g., `sudo fairshare admin setup --cpu 1 --mem 2`)
+- Run admin commands with `sudo` (e.g., `sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4`)
 - Create/modify global defaults in `/etc/systemd/system/`
+- Configure system reserves in `/etc/fairshare/policy.toml`
 - Install PolicyKit policies in `/usr/share/polkit-1/actions/` and `/etc/polkit-1/rules.d/`
 - Can affect all user sessions
 
@@ -200,12 +219,13 @@ This allows users to type `fairshare status` instead of `pkexec fairshare status
 
 **Source of Truth**: Systemd is the authoritative source for all resource allocations. The system queries systemd directly via `systemctl` commands - no persistent state file is used.
 
-**Delta-based resource checking**: When a user requests resources, the system intelligently calculates the **net increase** needed:
+**Delta-based resource checking with reserves**: When a user requests resources, the system intelligently calculates the **net increase** needed while respecting system reserves:
 
 1. Query all current allocations from systemd via `systemctl show`
-2. If the requesting user already has an allocation, subtract it from total used resources
-3. Calculate available resources: `total - (used - user's_current_allocation)`
-4. Check if the requested amount fits in the available pool
+2. Read system reserves from `/etc/fairshare/policy.toml` (cpu_reserve and mem_reserve)
+3. If the requesting user already has an allocation, subtract it from total used resources
+4. Calculate available resources: `total - (used - user's_current_allocation) - system_reserves`
+5. Check if the requested amount fits in the available pool
 
 **Example**: User has 9GB allocated, requests 10GB, and only 2GB is free system-wide:
 - Old behavior (would fail): Check if 10GB ≤ 2GB available → **FAIL**
