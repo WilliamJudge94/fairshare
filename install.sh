@@ -23,11 +23,17 @@ echo "=============================="
 echo
 
 # Check if running as root
-if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}Error: This script must be run as root${NC}"
-   echo "Please run: sudo $0"
-   exit 1
+if [[ $EUID -eq 0 ]]; then
+    IS_ROOT=true
+    SUDO=""
+    echo "Running as root - will install directly without sudo"
+else
+    IS_ROOT=false
+    SUDO="sudo"
+    echo "This script will download and prepare fairshare for installation."
+    echo "You will be shown the exact commands that need sudo before running them."
 fi
+echo
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -48,12 +54,6 @@ esac
 echo -e "Detected architecture: ${GREEN}$ARCH_NAME${NC}"
 echo
 
-# Update package lists
-echo "Updating package lists..."
-apt update || {
-    echo -e "${YELLOW}Warning: Failed to run apt update${NC}"
-    echo "Continuing anyway..."
-}
 echo
 
 # Check for dependencies
@@ -73,45 +73,20 @@ if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
     exit 1
 fi
 
-# Check for PolicyKit and offer to install if missing
+# Check for PolicyKit
+NEEDS_POLKIT=false
 if ! command -v pkexec &> /dev/null; then
-    echo -e "${YELLOW}PolicyKit (pkexec) not found${NC}"
+    echo -e "${YELLOW}Warning: PolicyKit (pkexec) not found${NC}"
+    echo "PolicyKit is required for fairshare to function properly."
+    echo "Please install it using one of these commands:"
+    echo "  sudo apt install policykit-1     # Debian/Ubuntu"
+    echo "  sudo dnf install polkit          # Fedora/RHEL"
+    echo "  sudo pacman -S polkit            # Arch Linux"
     echo
-    echo "PolicyKit is required to allow regular users to manage their systemd user slices"
-    echo "without requiring full root access. This enables users to safely request and"
-    echo "release CPU and memory resources for their own sessions."
-    echo
-    read -p "Would you like to install PolicyKit now? (y/n): " -n 1 -r
-    echo
-
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${YELLOW}Installing PolicyKit...${NC}"
-        echo "Running: apt-get update"
-        apt-get update || {
-            echo -e "${RED}Error: Failed to run apt-get update${NC}"
-            exit 1
-        }
-
-        echo "Running: apt install -y policykit-1"
-        apt install -y policykit-1 || {
-            echo -e "${RED}Error: Failed to install policykit-1${NC}"
-            echo "You may need to install it manually or use a different package manager."
-            exit 1
-        }
-
-        echo -e "${GREEN}✓ PolicyKit installed successfully${NC}"
-        echo
-    else
-        echo -e "${RED}Error: PolicyKit is required for fairshare to function${NC}"
-        echo "Please install it manually:"
-        echo "  apt install policykit-1     # Debian/Ubuntu"
-        echo "  dnf install polkit          # Fedora/RHEL"
-        echo "  pacman -S polkit            # Arch Linux"
-        exit 1
-    fi
+    NEEDS_POLKIT=true
+else
+    echo -e "${GREEN}✓ PolicyKit found${NC}"
 fi
-
-echo -e "${GREEN}All dependencies found${NC}"
 echo
 
 # Determine installation source
@@ -173,42 +148,47 @@ else
     ASSETS_DIR="$TEMP_DIR/assets"
 fi
 
-# Install binary
+# Prepare installation in staging directory
 echo
-echo "Installing fairshare..."
-install -D -m 0755 "$BINARY_PATH" "$INSTALL_DIR/libexec/fairshare-bin"
-echo -e "${GREEN}✓${NC} Installed binary to $INSTALL_DIR/libexec/fairshare-bin"
+echo "Preparing installation files..."
 
-# Install wrapper
+# Create staging directory
+STAGING_DIR=$(mktemp -d -t fairshare-install.XXXXXXXXXX)
+echo "Using staging directory: $STAGING_DIR"
+
+# Copy binary
+cp "$BINARY_PATH" "$STAGING_DIR/fairshare-bin"
+chmod 0755 "$STAGING_DIR/fairshare-bin"
+echo -e "${GREEN}✓${NC} Prepared binary"
+
+# Copy wrapper
 if [[ -f "$WRAPPER_PATH" ]]; then
-    install -D -m 0755 "$WRAPPER_PATH" "$INSTALL_DIR/bin/fairshare"
-    echo -e "${GREEN}✓${NC} Installed wrapper to $INSTALL_DIR/bin/fairshare"
+    cp "$WRAPPER_PATH" "$STAGING_DIR/fairshare-wrapper"
+    chmod 0755 "$STAGING_DIR/fairshare-wrapper"
+    echo -e "${GREEN}✓${NC} Prepared wrapper script"
 else
     echo -e "${RED}Error: Wrapper script not found at $WRAPPER_PATH${NC}"
     exit 1
 fi
 
-# Install PolicyKit files
-echo
-echo "Installing PolicyKit policies..."
+# Prepare PolicyKit files
+echo -e "${GREEN}✓${NC} Preparing PolicyKit policies..."
 
 if [[ -f "$ASSETS_DIR/org.fairshare.policy" ]]; then
     # Update the binary path in the policy file to match installation location
     sed "s|/usr/local/libexec/fairshare-bin|$INSTALL_DIR/libexec/fairshare-bin|g" \
-        "$ASSETS_DIR/org.fairshare.policy" > /tmp/org.fairshare.policy
-    install -D -m 0644 /tmp/org.fairshare.policy /usr/share/polkit-1/actions/org.fairshare.policy
-    rm /tmp/org.fairshare.policy
-    echo -e "${GREEN}✓${NC} Installed PolicyKit action"
+        "$ASSETS_DIR/org.fairshare.policy" > "$STAGING_DIR/org.fairshare.policy"
+    chmod 0644 "$STAGING_DIR/org.fairshare.policy"
 fi
 
 if [[ -f "$ASSETS_DIR/50-fairshare.rules" ]]; then
-    install -D -m 0644 "$ASSETS_DIR/50-fairshare.rules" /etc/polkit-1/rules.d/50-fairshare.rules
-    echo -e "${GREEN}✓${NC} Installed PolicyKit rules"
+    cp "$ASSETS_DIR/50-fairshare.rules" "$STAGING_DIR/50-fairshare.rules"
+    chmod 0644 "$STAGING_DIR/50-fairshare.rules"
 fi
 
 if [[ -f "$ASSETS_DIR/50-fairshare.pkla" ]]; then
-    install -D -m 0644 "$ASSETS_DIR/50-fairshare.pkla" /var/lib/polkit-1/localauthority/10-vendor.d/50-fairshare.pkla
-    echo -e "${GREEN}✓${NC} Installed PolicyKit localauthority"
+    cp "$ASSETS_DIR/50-fairshare.pkla" "$STAGING_DIR/50-fairshare.pkla"
+    chmod 0644 "$STAGING_DIR/50-fairshare.pkla"
 fi
 
 # Cleanup temp directory if used
@@ -216,28 +196,142 @@ if [[ "$USE_LOCAL" == false ]] && [[ -d "$TEMP_DIR" ]]; then
     rm -rf "$TEMP_DIR"
 fi
 
-# Run admin setup
+# Display sudo commands needed
 echo
-echo "Setting up default resource limits..."
-echo -e "${YELLOW}This will configure default limits of ${DEFAULT_CPU} CPU core(s) and ${DEFAULT_MEM} GB memory per user${NC}"
+echo -e "${GREEN}✓ Installation files prepared successfully!${NC}"
+echo
+echo "=============================="
+if [[ "$IS_ROOT" == true ]]; then
+    echo "Installation commands:"
+else
+    echo "Commands that require sudo:"
+fi
+echo "=============================="
+echo
+echo "# Install binary and wrapper"
+if [[ -n "$SUDO" ]]; then
+    echo "sudo install -D -m 0755 $STAGING_DIR/fairshare-bin $INSTALL_DIR/libexec/fairshare-bin"
+    echo "sudo install -D -m 0755 $STAGING_DIR/fairshare-wrapper $INSTALL_DIR/bin/fairshare"
+else
+    echo "install -D -m 0755 $STAGING_DIR/fairshare-bin $INSTALL_DIR/libexec/fairshare-bin"
+    echo "install -D -m 0755 $STAGING_DIR/fairshare-wrapper $INSTALL_DIR/bin/fairshare"
+fi
 echo
 
-if "$INSTALL_DIR/bin/fairshare" admin setup --cpu "$DEFAULT_CPU" --mem "$DEFAULT_MEM"; then
+if [[ -f "$STAGING_DIR/org.fairshare.policy" ]]; then
+    echo "# Install PolicyKit policy"
+    if [[ -n "$SUDO" ]]; then
+        echo "sudo install -D -m 0644 $STAGING_DIR/org.fairshare.policy /usr/share/polkit-1/actions/org.fairshare.policy"
+    else
+        echo "install -D -m 0644 $STAGING_DIR/org.fairshare.policy /usr/share/polkit-1/actions/org.fairshare.policy"
+    fi
+fi
+
+if [[ -f "$STAGING_DIR/50-fairshare.rules" ]]; then
+    if [[ -n "$SUDO" ]]; then
+        echo "sudo install -D -m 0644 $STAGING_DIR/50-fairshare.rules /etc/polkit-1/rules.d/50-fairshare.rules"
+    else
+        echo "install -D -m 0644 $STAGING_DIR/50-fairshare.rules /etc/polkit-1/rules.d/50-fairshare.rules"
+    fi
+fi
+
+if [[ -f "$STAGING_DIR/50-fairshare.pkla" ]]; then
+    if [[ -n "$SUDO" ]]; then
+        echo "sudo install -D -m 0644 $STAGING_DIR/50-fairshare.pkla /var/lib/polkit-1/localauthority/10-vendor.d/50-fairshare.pkla"
+    else
+        echo "install -D -m 0644 $STAGING_DIR/50-fairshare.pkla /var/lib/polkit-1/localauthority/10-vendor.d/50-fairshare.pkla"
+    fi
+fi
+
+echo
+echo "# Configure default resource limits"
+if [[ -n "$SUDO" ]]; then
+    echo "sudo $INSTALL_DIR/bin/fairshare admin setup --cpu $DEFAULT_CPU --mem $DEFAULT_MEM"
+else
+    echo "$INSTALL_DIR/bin/fairshare admin setup --cpu $DEFAULT_CPU --mem $DEFAULT_MEM"
+fi
+echo
+echo "=============================="
+echo
+
+# Optionally run them
+read -p "Run these commands now? (y/n): " -n 1 -r
+echo
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo
-    echo -e "${GREEN}✓ Installation complete!${NC}"
+    echo "Running installation commands..."
     echo
-    echo "fairshare is now installed and configured."
+
+    $SUDO install -D -m 0755 "$STAGING_DIR/fairshare-bin" "$INSTALL_DIR/libexec/fairshare-bin" || {
+        echo -e "${RED}Error: Failed to install binary${NC}"
+        exit 1
+    }
+    echo -e "${GREEN}✓${NC} Installed binary to $INSTALL_DIR/libexec/fairshare-bin"
+
+    $SUDO install -D -m 0755 "$STAGING_DIR/fairshare-wrapper" "$INSTALL_DIR/bin/fairshare" || {
+        echo -e "${RED}Error: Failed to install wrapper${NC}"
+        exit 1
+    }
+    echo -e "${GREEN}✓${NC} Installed wrapper to $INSTALL_DIR/bin/fairshare"
+
+    if [[ -f "$STAGING_DIR/org.fairshare.policy" ]]; then
+        $SUDO install -D -m 0644 "$STAGING_DIR/org.fairshare.policy" /usr/share/polkit-1/actions/org.fairshare.policy || {
+            echo -e "${RED}Error: Failed to install PolicyKit action${NC}"
+            exit 1
+        }
+        echo -e "${GREEN}✓${NC} Installed PolicyKit action"
+    fi
+
+    if [[ -f "$STAGING_DIR/50-fairshare.rules" ]]; then
+        $SUDO install -D -m 0644 "$STAGING_DIR/50-fairshare.rules" /etc/polkit-1/rules.d/50-fairshare.rules || {
+            echo -e "${RED}Error: Failed to install PolicyKit rules${NC}"
+            exit 1
+        }
+        echo -e "${GREEN}✓${NC} Installed PolicyKit rules"
+    fi
+
+    if [[ -f "$STAGING_DIR/50-fairshare.pkla" ]]; then
+        $SUDO install -D -m 0644 "$STAGING_DIR/50-fairshare.pkla" /var/lib/polkit-1/localauthority/10-vendor.d/50-fairshare.pkla || {
+            echo -e "${RED}Error: Failed to install PolicyKit localauthority${NC}"
+            exit 1
+        }
+        echo -e "${GREEN}✓${NC} Installed PolicyKit localauthority"
+    fi
+
     echo
-    echo "Try these commands:"
-    echo "  fairshare status    # View system resource usage"
-    echo "  fairshare info      # View your current allocation"
-    echo "  fairshare request --cpu 4 --mem 8  # Request resources"
-    echo
-    echo "To uninstall, run: sudo $INSTALL_DIR/bin/fairshare admin uninstall --force"
+    echo "Setting up default resource limits..."
+    if $SUDO "$INSTALL_DIR/bin/fairshare" admin setup --cpu "$DEFAULT_CPU" --mem "$DEFAULT_MEM"; then
+        echo
+        echo -e "${GREEN}✓ Installation complete!${NC}"
+        echo
+        echo "fairshare is now installed and configured."
+        echo
+        echo "Try these commands:"
+        echo "  fairshare status    # View system resource usage"
+        echo "  fairshare info      # View your current allocation"
+        echo "  fairshare request --cpu 4 --mem 8  # Request resources"
+        echo
+        if [[ "$IS_ROOT" == true ]]; then
+            echo "To uninstall, run: fairshare admin uninstall --force"
+        else
+            echo "To uninstall, run: sudo fairshare admin uninstall --force"
+        fi
+    else
+        echo
+        echo -e "${RED}Error: Admin setup failed${NC}"
+        echo "Installation may be incomplete. You can try running:"
+        echo "  $SUDO fairshare admin setup --cpu $DEFAULT_CPU --mem $DEFAULT_MEM"
+        exit 1
+    fi
+
+    # Cleanup staging directory
+    rm -rf "$STAGING_DIR"
 else
     echo
-    echo -e "${RED}Error: Admin setup failed${NC}"
-    echo "Installation may be incomplete. You can try running:"
-    echo "  sudo fairshare admin setup --cpu $DEFAULT_CPU --mem $DEFAULT_MEM"
-    exit 1
+    echo "Installation files are ready in: $STAGING_DIR"
+    echo
+    echo "To complete installation later, run the commands shown above."
+    echo "The staging directory will be automatically cleaned up on next reboot."
+    echo
 fi
