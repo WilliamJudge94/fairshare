@@ -25,7 +25,7 @@ The easiest way to install fairshare is using the installation script:
 
 ```bash
 # Download and run the installer
-curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | sudo bash
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
 ```
 
 Or if you prefer to inspect the script first:
@@ -38,7 +38,7 @@ wget https://raw.github.com/WilliamJudge94/fairshare/main/install.sh
 cat install.sh
 
 # Run it
-sudo bash install.sh
+bash install.sh
 ```
 
 The installer will:
@@ -60,7 +60,7 @@ If you prefer to build from source or are developing fairshare:
 cargo build --release
 
 # 2. Run the installer (it will detect the local build and install PolicyKit if needed)
-sudo bash install.sh
+bash install.sh
 ```
 
 Alternatively, use the Makefile for manual installation:
@@ -104,10 +104,10 @@ To remove fairshare from your system:
 
 ```bash
 # Using the uninstall script
-curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/uninstall.sh | sudo bash
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/uninstall.sh | bash
 
 # Or if you have the repository
-sudo bash uninstall.sh
+bash uninstall.sh
 
 # Or manually
 sudo fairshare admin uninstall --force
@@ -248,7 +248,7 @@ This installs the PolicyKit policies that allow active users to run fairshare co
 If you get "command not found" errors, ensure the installation completed:
 ```bash
 # Reinstall using the install script
-sudo bash install.sh
+bash install.sh
 
 # Or if building from source
 sudo make release

@@ -289,8 +289,17 @@ echo "=============================="
 echo
 
 # Optionally run them
-read -p "Run these commands now? (y/n): " -n 1 -r
-echo
+# Check if stdin is a terminal (not piped from curl)
+if [ -t 0 ]; then
+    read -p "Run these commands now? (y/n): " -n 1 -r </dev/tty
+    echo
+else
+    echo "Script is being piped - skipping automatic execution."
+    echo "Please run the commands above manually, or download and run the script directly:"
+    echo "  wget https://raw.githubusercontent.com/$REPO/main/install.sh"
+    echo "  bash install.sh"
+    REPLY="n"
+fi
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo
