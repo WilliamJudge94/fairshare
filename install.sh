@@ -75,13 +75,29 @@ fi
 
 # Check for PolicyKit
 NEEDS_POLKIT=false
+POLKIT_INSTALL_CMD=""
+POLKIT_UPDATE_CMD=""
 if ! command -v pkexec &> /dev/null; then
     echo -e "${YELLOW}Warning: PolicyKit (pkexec) not found${NC}"
     echo "PolicyKit is required for fairshare to function properly."
-    echo "Please install it using one of these commands:"
-    echo "  sudo apt install policykit-1     # Debian/Ubuntu"
-    echo "  sudo dnf install polkit          # Fedora/RHEL"
-    echo "  sudo pacman -S polkit            # Arch Linux"
+
+    # Detect package manager and set install command
+    if command -v apt &> /dev/null; then
+        POLKIT_UPDATE_CMD="apt update"
+        POLKIT_INSTALL_CMD="apt install -y policykit-1"
+        echo "Will install using: sudo apt update && sudo apt install -y policykit-1"
+    elif command -v dnf &> /dev/null; then
+        POLKIT_INSTALL_CMD="dnf install -y polkit"
+        echo "Will install using: sudo dnf install -y polkit"
+    elif command -v pacman &> /dev/null; then
+        POLKIT_INSTALL_CMD="pacman -S --noconfirm polkit"
+        echo "Will install using: sudo pacman -S --noconfirm polkit"
+    else
+        echo "Could not detect package manager. Please install PolicyKit manually:"
+        echo "  sudo apt install policykit-1     # Debian/Ubuntu"
+        echo "  sudo dnf install polkit          # Fedora/RHEL"
+        echo "  sudo pacman -S polkit            # Arch Linux"
+    fi
     echo
     NEEDS_POLKIT=true
 else
@@ -208,6 +224,24 @@ else
 fi
 echo "=============================="
 echo
+
+if [[ "$NEEDS_POLKIT" == true ]] && [[ -n "$POLKIT_INSTALL_CMD" ]]; then
+    echo "# Install PolicyKit (required for fairshare to work)"
+    if [[ -n "$POLKIT_UPDATE_CMD" ]]; then
+        if [[ -n "$SUDO" ]]; then
+            echo "sudo $POLKIT_UPDATE_CMD"
+        else
+            echo "$POLKIT_UPDATE_CMD"
+        fi
+    fi
+    if [[ -n "$SUDO" ]]; then
+        echo "sudo $POLKIT_INSTALL_CMD"
+    else
+        echo "$POLKIT_INSTALL_CMD"
+    fi
+    echo
+fi
+
 echo "# Install binary and wrapper"
 if [[ -n "$SUDO" ]]; then
     echo "sudo install -D -m 0755 $STAGING_DIR/fairshare-bin $INSTALL_DIR/libexec/fairshare-bin"
@@ -262,6 +296,27 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo
     echo "Running installation commands..."
     echo
+
+    # Install PolicyKit if needed
+    if [[ "$NEEDS_POLKIT" == true ]] && [[ -n "$POLKIT_INSTALL_CMD" ]]; then
+        if [[ -n "$POLKIT_UPDATE_CMD" ]]; then
+            echo "Updating package lists..."
+            $SUDO $POLKIT_UPDATE_CMD || {
+                echo -e "${RED}Error: Failed to update package lists${NC}"
+                echo "Please check your internet connection and try again."
+                exit 1
+            }
+            echo -e "${GREEN}✓${NC} Updated package lists"
+        fi
+
+        echo "Installing PolicyKit..."
+        $SUDO $POLKIT_INSTALL_CMD || {
+            echo -e "${RED}Error: Failed to install PolicyKit${NC}"
+            echo "Please install PolicyKit manually and re-run this script."
+            exit 1
+        }
+        echo -e "${GREEN}✓${NC} Installed PolicyKit"
+    fi
 
     $SUDO install -D -m 0755 "$STAGING_DIR/fairshare-bin" "$INSTALL_DIR/libexec/fairshare-bin" || {
         echo -e "${RED}Error: Failed to install binary${NC}"
