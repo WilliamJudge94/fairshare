@@ -216,13 +216,13 @@ fi
 echo
 echo -e "${GREEN}✓ Installation files prepared successfully!${NC}"
 echo
-echo "=============================="
+echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
 if [[ "$IS_ROOT" == true ]]; then
-    echo "Installation commands:"
+    echo -e "${GREEN}║${NC}                     ${YELLOW}Installation Commands${NC}                      ${GREEN}║${NC}"
 else
-    echo "Commands that require sudo:"
+    echo -e "${GREEN}║${NC}                   ${YELLOW}Commands that require sudo${NC}                   ${GREEN}║${NC}"
 fi
-echo "=============================="
+echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo
 
 if [[ "$NEEDS_POLKIT" == true ]] && [[ -n "$POLKIT_INSTALL_CMD" ]]; then
@@ -291,13 +291,18 @@ echo
 # Optionally run them
 # Check if stdin is a terminal (not piped from curl)
 if [ -t 0 ]; then
-    read -p "Run these commands now? (y/n): " -n 1 -r </dev/tty
+    echo -e "${YELLOW}────────────────────────────────────────────────────────────────${NC}"
+    read -p "$(echo -e ${GREEN}▶${NC} Run these commands now? ${YELLOW}[y/n]${NC}: )" -n 1 -r </dev/tty
+    echo
+    echo -e "${YELLOW}────────────────────────────────────────────────────────────────${NC}"
     echo
 else
-    echo "Script is being piped - skipping automatic execution."
+    echo -e "${YELLOW}⚠ Script is being piped - skipping automatic execution.${NC}"
+    echo
     echo "Please run the commands above manually, or download and run the script directly:"
-    echo "  wget https://raw.github.com/$REPO/main/install.sh"
-    echo "  bash install.sh"
+    echo -e "  ${GREEN}wget https://raw.github.com/$REPO/main/install.sh${NC}"
+    echo -e "  ${GREEN}bash install.sh${NC}"
+    echo
     REPLY="n"
 fi
 
