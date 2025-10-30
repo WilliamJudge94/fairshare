@@ -2,21 +2,22 @@
 
 This document explains how to create a GitHub release with the pre-built binaries.
 
-## Version 0.3.0 Changes
+## Version 0.3.1 Changes
 
-**New Features:**
-- Added CPU reserve parameter (`--cpu-reserve`, default: 2 CPUs)
-- Added memory reserve parameter (`--mem-reserve`, default: 4GB)
-- System reserves are now subtracted from available resources for allocation
-- Improved Makefile with simplified cross-compilation workflow
+**Installation Improvements:**
+- The installation script now automatically detects if PolicyKit is missing
+- Automatically installs PolicyKit on apt/dnf/pacman-based systems
+- For Debian/Ubuntu systems, runs `apt update` before installing PolicyKit
+- Shows PolicyKit installation commands in the "Commands that require sudo" section
+- Users no longer need to manually install PolicyKit before running the installer
 
-**What CPU/Memory Reserves Do:**
-Reserves ensure that a portion of system resources are kept for the operating system and background processes. Users can only allocate up to (Total - Reserved) resources.
+**Documentation Updates:**
+- Updated README.md with PolicyKit auto-installation information
+- Updated CLAUDE.md with installation and troubleshooting guidance
+- Added new troubleshooting section for PolicyKit issues
 
-Example: On a system with 8 CPUs and 16GB RAM with defaults:
-- Total: 8 CPUs, 16 GB
-- Reserved: 2 CPUs, 4 GB
-- Available for users: 6 CPUs, 12 GB
+**What This Fixes:**
+Previously, users had to manually install PolicyKit before fairshare would work. Now the installer handles this automatically, providing a smoother installation experience.
 
 ## Step 1: Build the Binaries
 
@@ -85,24 +86,22 @@ Test that the binaries work correctly:
 ```bash
 # Check version
 ./releases/fairshare-x86_64 --version
-# Output: fairshare 0.3.0
+# Output: fairshare 0.3.1
 
 # Check architecture
 readelf -h releases/fairshare-x86_64 | grep Machine
 readelf -h releases/fairshare-aarch64 | grep Machine
 
-# Test help command with new reserve parameters
-./releases/fairshare-x86_64 admin setup --help
+# Test help command
+./releases/fairshare-x86_64 --help
 ```
-
-You should see the new `--cpu-reserve` and `--mem-reserve` options in the help output.
 
 ## Step 3: Create the Release on GitHub
 
 1. Go to https://github.com/WilliamJudge94/fairshare/releases
 2. Click "Draft a new release"
-3. Choose a tag version: `v0.3.0`
-4. Set the release title: "fairshare v0.3.0 - System Resource Reserves"
+3. Choose a tag version: `v0.3.1`
+4. Set the release title: "fairshare v0.3.1 - Improved Installation"
 5. Write release notes (see example below)
 6. Upload the following files as release assets:
    - `releases/fairshare-x86_64`
@@ -113,55 +112,68 @@ You should see the new `--cpu-reserve` and `--mem-reserve` options in the help o
 ### Example Release Notes
 
 ```markdown
-# fairshare v0.3.0 - System Resource Reserves
+# fairshare v0.3.1 - Improved Installation
 
-## New Features
+## What's New
 
-### System Resource Reserves
-You can now reserve CPU and memory for the operating system and background processes. This ensures critical system services always have resources available.
+### Automatic PolicyKit Installation
+
+The installation script now automatically handles PolicyKit installation, making setup even easier:
 
 ```bash
-# Setup with custom reserves (2 CPUs and 4GB RAM reserved by default)
-sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4
-
-# The status command now shows reserved resources
-fairshare status
+# Just run the installer - it handles everything
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
 ```
 
-**Example Output:**
+**What the installer does:**
+- Detects if PolicyKit (pkexec) is installed
+- If missing, automatically installs it using your package manager:
+  - Debian/Ubuntu: Runs `apt update` then `apt install policykit-1`
+  - Fedora/RHEL: Runs `dnf install polkit`
+  - Arch Linux: Runs `pacman -S polkit`
+- Shows all commands that will be run before executing them
+- Continues with fairshare installation
+
+**Before (v0.3.0):**
+```bash
+# Users had to manually install PolicyKit first
+sudo apt install policykit-1
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
 ```
-╔═══════════════════════════════════════╗
-║      SYSTEM RESOURCE OVERVIEW         ║
-╚═══════════════════════════════════════╝
 
-┌──────────────────┬──────┬──────────┐
-│ Metric           │ CPUs │ RAM (GB) │
-├──────────────────┼──────┼──────────┤
-│ Total            │ 8    │ 16.00    │
-│ Reserved (System)│ 2.00 │ 4.00     │
-│ Allocated        │ 4.00 │ 6.00     │
-│ Available        │ 2.00 │ 6.00     │
-└──────────────────┴──────┴──────────┘
+**Now (v0.3.1):**
+```bash
+# Installer handles everything automatically
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
 ```
 
-Users can now only allocate up to (Total - Reserved) resources, ensuring system stability.
+### Documentation Improvements
 
-## Improvements
+- Added PolicyKit auto-installation details to README.md
+- Updated CLAUDE.md with comprehensive installation guidance
+- Added troubleshooting section for PolicyKit issues
+- Clarified manual installation steps for users building from source
 
-- Simplified Makefile for easier cross-compilation
-- Better error messages and user feedback
-- Updated documentation for new reserve features
+## Bug Fixes
+
+- None (this is a patch release focused on installation improvements)
 
 ## Installation
 
-### Quick Install
+### Quick Install (Recommended)
 ```bash
-curl -sSL https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/install.sh | sudo bash
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
+```
+
+### Build from Source
+```bash
+cargo build --release
+bash install.sh
 ```
 
 ### Verify Installation
 ```bash
-fairshare --version  # Should show: fairshare 0.3.0
+fairshare --version  # Should show: fairshare 0.3.1
 ```
 
 ## Checksums
@@ -173,7 +185,22 @@ sha256sum -c SHA256SUMS
 
 ## Full Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for complete details.
+### Changed
+- Installation script now automatically detects and installs PolicyKit if missing
+- For apt-based systems, runs `apt update` before installing PolicyKit
+- Updated documentation to reflect automatic PolicyKit installation
+
+### Added
+- New troubleshooting section for PolicyKit issues
+- Clear guidance for manual PolicyKit installation
+
+## Upgrading from v0.3.0
+
+Simply run the new installer or build from source. No configuration changes needed:
+
+```bash
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
+```
 ```
 
 ## Step 4: Test the Installation
@@ -181,16 +208,24 @@ See [CHANGELOG.md](CHANGELOG.md) for complete details.
 After creating the release, test that users can install it:
 
 ```bash
-# Test the install script
-curl -sSL https://raw.githubusercontent.com/WilliamJudge94/fairshare/main/install.sh | sudo bash
+# Test the install script (on a system without PolicyKit if possible)
+curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
 
 # Verify version
-fairshare --version  # Should show: fairshare 0.3.0
+fairshare --version  # Should show: fairshare 0.3.1
 
-# Test new reserve feature
-sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4
-fairshare status  # Should show reserved resources row
+# Test basic functionality
+fairshare status
+fairshare info
 ```
+
+## Step 5: Update Version References
+
+After the release, update version numbers in the codebase for the next release:
+
+1. Update `Cargo.toml` version to `0.3.2` (or `0.4.0` depending on next changes)
+2. Update any hardcoded version strings in documentation
+3. Commit with message: "chore: bump version to 0.3.2-dev"
 
 ## Automated Releases (Future)
 
