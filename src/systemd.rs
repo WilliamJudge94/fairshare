@@ -1,10 +1,10 @@
-use std::process::Command;
-use std::io::{self, Write};
-use std::fs;
-use std::path::Path;
-use std::env;
-use users;
 use colored::*;
+use std::env;
+use std::fs;
+use std::io::{self, Write};
+use std::path::Path;
+use std::process::Command;
+use users;
 
 // Import constants from cli module for validation
 use crate::cli::{MAX_CPU, MAX_MEM};
@@ -16,17 +16,18 @@ use crate::cli::{MAX_CPU, MAX_MEM};
 pub fn get_calling_user_uid() -> io::Result<u32> {
     // First check if we're running via pkexec
     if let Ok(pkexec_uid_str) = env::var("PKEXEC_UID") {
-        let uid = pkexec_uid_str.parse::<u32>()
-            .map_err(|e| io::Error::new(
+        let uid = pkexec_uid_str.parse::<u32>().map_err(|e| {
+            io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Invalid PKEXEC_UID environment variable: {}", e)
-            ))?;
+                format!("Invalid PKEXEC_UID environment variable: {}", e),
+            )
+        })?;
 
         // Validate UID is not root
         if uid == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                "Cannot modify root user slice"
+                "Cannot modify root user slice",
             ));
         }
 
@@ -34,7 +35,7 @@ pub fn get_calling_user_uid() -> io::Result<u32> {
         if uid < 1000 {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                "Cannot modify system user slice"
+                "Cannot modify system user slice",
             ));
         }
 
@@ -42,7 +43,7 @@ pub fn get_calling_user_uid() -> io::Result<u32> {
         if users::get_user_by_uid(uid).is_none() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("User with UID {} does not exist", uid)
+                format!("User with UID {} does not exist", uid),
             ));
         }
 
@@ -58,13 +59,13 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     if cpu > MAX_CPU {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU)
+            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU),
         ));
     }
     if mem > MAX_MEM {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM)
+            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM),
         ));
     }
 
@@ -72,18 +73,26 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     let uid = get_calling_user_uid()?;
 
     // Convert GB to bytes with overflow checking
-    let mem_bytes = (mem as u64).checked_mul(1_000_000_000)
-        .ok_or_else(|| io::Error::new(
+    let mem_bytes = (mem as u64).checked_mul(1_000_000_000).ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("Memory value {} GB is too large and would cause overflow when converting to bytes", mem)
-        ))?;
+            format!(
+                "Memory value {} GB is too large and would cause overflow when converting to bytes",
+                mem
+            ),
+        )
+    })?;
 
     // Calculate CPU quota with overflow checking
-    let cpu_quota = cpu.checked_mul(100)
-        .ok_or_else(|| io::Error::new(
+    let cpu_quota = cpu.checked_mul(100).ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("CPU value {} is too large and would cause overflow when calculating quota", cpu)
-        ))?;
+            format!(
+                "CPU value {} is too large and would cause overflow when calculating quota",
+                cpu
+            ),
+        )
+    })?;
 
     // When run via pkexec, we have root privileges and modify system-level user slices
     let status = Command::new("systemctl")
@@ -116,7 +125,10 @@ pub fn release_user_limits() -> io::Result<()> {
     if !status.success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("Failed to release user limits (exit code: {:?})", status.code()),
+            format!(
+                "Failed to release user limits (exit code: {:?})",
+                status.code()
+            ),
         ));
     }
 
@@ -163,15 +175,42 @@ pub fn show_user_info() -> io::Result<()> {
         }
     }
 
-    println!("{}", "╔═══════════════════════════════════════╗".bright_cyan());
-    println!("{}", "║       USER RESOURCE ALLOCATION        ║".bright_cyan().bold());
-    println!("{}", "╚═══════════════════════════════════════╝".bright_cyan());
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║       USER RESOURCE ALLOCATION        ║"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════╝".bright_cyan()
+    );
     println!();
-    println!("{} {}", "User:".bright_white().bold(), username.bright_yellow());
-    println!("{} {}", "UID:".bright_white().bold(), uid.to_string().bright_yellow());
+    println!(
+        "{} {}",
+        "User:".bright_white().bold(),
+        username.bright_yellow()
+    );
+    println!(
+        "{} {}",
+        "UID:".bright_white().bold(),
+        uid.to_string().bright_yellow()
+    );
     println!();
-    println!("{} {}", "CPU Quota:".bright_white().bold(), cpu_quota.green());
-    println!("{} {}", "Memory Max:".bright_white().bold(), mem_max.green());
+    println!(
+        "{} {}",
+        "CPU Quota:".bright_white().bold(),
+        cpu_quota.green()
+    );
+    println!(
+        "{} {}",
+        "Memory Max:".bright_white().bold(),
+        mem_max.green()
+    );
 
     Ok(())
 }
@@ -179,7 +218,12 @@ pub fn show_user_info() -> io::Result<()> {
 /// Check if PolicyKit (policykit-1) is installed on the system
 fn check_policykit_installed() -> bool {
     // Method 1: Check if pkexec binary exists
-    if Command::new("which").arg("pkexec").output().map(|o| o.status.success()).unwrap_or(false) {
+    if Command::new("which")
+        .arg("pkexec")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
         return true;
     }
 
@@ -188,7 +232,9 @@ fn check_policykit_installed() -> bool {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             // Check if package is installed (starts with "ii")
-            return stdout.lines().any(|line| line.starts_with("ii") && line.contains("policykit-1"));
+            return stdout
+                .lines()
+                .any(|line| line.starts_with("ii") && line.contains("policykit-1"));
         }
     }
 
@@ -213,14 +259,12 @@ fn install_policykit() -> io::Result<()> {
 
     // Update apt cache
     println!("{}", "→ Updating apt cache...".bright_white());
-    let update_status = Command::new("apt")
-        .args(["update"])
-        .status()?;
+    let update_status = Command::new("apt").args(["update"]).status()?;
 
     if !update_status.success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            "Failed to update apt cache. Please run 'apt update' manually."
+            "Failed to update apt cache. Please run 'apt update' manually.",
         ));
     }
 
@@ -237,14 +281,23 @@ fn install_policykit() -> io::Result<()> {
         ));
     }
 
-    println!("{} {}", "✓".green().bold(), "PolicyKit installed successfully".bright_white());
+    println!(
+        "{} {}",
+        "✓".green().bold(),
+        "PolicyKit installed successfully".bright_white()
+    );
     Ok(())
 }
 
 /// Setup global default resource allocations for all users.
 /// Default minimum: 1 CPU core and 2G RAM per user, with 2 CPU and 4G RAM system reserves.
 /// Each user can request additional resources up to system limits.
-pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u32) -> io::Result<()> {
+pub fn admin_setup_defaults(
+    cpu: u32,
+    mem: u32,
+    cpu_reserve: u32,
+    mem_reserve: u32,
+) -> io::Result<()> {
     // Check if PolicyKit is installed first
     print!("{} ", "→".bright_white());
     print!("{}", "Checking PolicyKit installation...".bright_white());
@@ -252,8 +305,16 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
 
     if !check_policykit_installed() {
         println!(" {}", "✗".red().bold());
-        eprintln!("{} {}", "⚠".bright_yellow().bold(), "PolicyKit (policykit-1) is required but not installed.".bright_yellow());
-        eprintln!("{}", "PolicyKit is needed for secure privilege escalation when users request resources.".bright_white());
+        eprintln!(
+            "{} {}",
+            "⚠".bright_yellow().bold(),
+            "PolicyKit (policykit-1) is required but not installed.".bright_yellow()
+        );
+        eprintln!(
+            "{}",
+            "PolicyKit is needed for secure privilege escalation when users request resources."
+                .bright_white()
+        );
         println!();
 
         match prompt_yes_no("Would you like to install it now? [y/n]: ") {
@@ -270,7 +331,7 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
             Err(e) => {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
-                    format!("Failed to read user input: {}", e)
+                    format!("Failed to read user input: {}", e),
                 ));
             }
         }
@@ -278,18 +339,17 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
         println!(" {}", "✓".green().bold());
     }
 
-
     // Validate inputs before operations
     if cpu > MAX_CPU {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU)
+            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU),
         ));
     }
     if mem > MAX_MEM {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM)
+            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM),
         ));
     }
 
@@ -300,18 +360,26 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
     let mut f = fs::File::create(&conf_path)?;
 
     // Convert GB to bytes with overflow checking
-    let mem_bytes = (mem as u64).checked_mul(1_000_000_000)
-        .ok_or_else(|| io::Error::new(
+    let mem_bytes = (mem as u64).checked_mul(1_000_000_000).ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("Memory value {} GB is too large and would cause overflow when converting to bytes", mem)
-        ))?;
+            format!(
+                "Memory value {} GB is too large and would cause overflow when converting to bytes",
+                mem
+            ),
+        )
+    })?;
 
     // Calculate CPU quota with overflow checking
-    let cpu_quota = cpu.checked_mul(100)
-        .ok_or_else(|| io::Error::new(
+    let cpu_quota = cpu.checked_mul(100).ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("CPU value {} is too large and would cause overflow when calculating quota", cpu)
-        ))?;
+            format!(
+                "CPU value {} is too large and would cause overflow when calculating quota",
+                cpu
+            ),
+        )
+    })?;
 
     writeln!(
         f,
@@ -319,17 +387,29 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
         cpu_quota, mem_bytes
     )?;
 
-    println!("{} Created {}", "✓".green().bold(), conf_path.display().to_string().bright_white());
+    println!(
+        "{} Created {}",
+        "✓".green().bold(),
+        conf_path.display().to_string().bright_white()
+    );
 
     Command::new("systemctl").arg("daemon-reload").status()?;
-    println!("{} {}", "✓".green().bold(), "Reloaded systemd daemon".bright_white());
+    println!(
+        "{} {}",
+        "✓".green().bold(),
+        "Reloaded systemd daemon".bright_white()
+    );
 
     // Calculate max caps with overflow checking
-    let max_cpu_cap = cpu.checked_mul(10)
-        .ok_or_else(|| io::Error::new(
+    let max_cpu_cap = cpu.checked_mul(10).ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("CPU value {} is too large for calculating max cap (cpu * 10 would overflow)", cpu)
-        ))?;
+            format!(
+                "CPU value {} is too large for calculating max cap (cpu * 10 would overflow)",
+                cpu
+            ),
+        )
+    })?;
 
     fs::create_dir_all("/etc/fairshare")?;
     let mut policy = fs::File::create("/etc/fairshare/policy.toml")?;
@@ -338,7 +418,11 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
         "[defaults]\ncpu = {}\nmem = {}\ncpu_reserve = {}\nmem_reserve = {}\n\n[max_caps]\ncpu = {}\nmem = {}\n",
         cpu, mem, cpu_reserve, mem_reserve, max_cpu_cap, mem
     )?;
-    println!("{} {}", "✓".green().bold(), "Created /etc/fairshare/policy.toml".bright_white());
+    println!(
+        "{} {}",
+        "✓".green().bold(),
+        "Created /etc/fairshare/policy.toml".bright_white()
+    );
 
     // Install PolicyKit policy file for pkexec integration
     let policy_source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/org.fairshare.policy");
@@ -362,9 +446,19 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
             fs::set_permissions(policy_dest, perms)?;
         }
 
-        println!("{} {}", "✓".green().bold(), "Installed PolicyKit policy to /usr/share/polkit-1/actions/org.fairshare.policy".bright_white());
+        println!(
+            "{} {}",
+            "✓".green().bold(),
+            "Installed PolicyKit policy to /usr/share/polkit-1/actions/org.fairshare.policy"
+                .bright_white()
+        );
     } else {
-        eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: PolicyKit policy file not found at assets/org.fairshare.policy".bright_yellow());
+        eprintln!(
+            "{} {}",
+            "⚠".bright_yellow().bold(),
+            "Warning: PolicyKit policy file not found at assets/org.fairshare.policy"
+                .bright_yellow()
+        );
     }
 
     // Install PolicyKit rule to allow pkexec without admin authentication
@@ -389,7 +483,11 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
             fs::set_permissions(rule_dest, perms)?;
         }
 
-        println!("{} {}", "✓".green().bold(), "Installed PolicyKit rule to /etc/polkit-1/rules.d/50-fairshare.rules".bright_white());
+        println!(
+            "{} {}",
+            "✓".green().bold(),
+            "Installed PolicyKit rule to /etc/polkit-1/rules.d/50-fairshare.rules".bright_white()
+        );
 
         // Restart polkit service to apply the new rule
         let polkit_restart = Command::new("systemctl")
@@ -399,17 +497,29 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
 
         match polkit_restart {
             Ok(status) if status.success() => {
-                println!("{} {}", "✓".green().bold(), "Restarted polkit.service".bright_white());
+                println!(
+                    "{} {}",
+                    "✓".green().bold(),
+                    "Restarted polkit.service".bright_white()
+                );
             }
             Ok(_) => {
                 eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
             }
             Err(e) => {
-                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+                eprintln!(
+                    "{} {}",
+                    "⚠".bright_yellow().bold(),
+                    format!("Warning: Could not restart polkit.service: {}", e).bright_yellow()
+                );
             }
         }
     } else {
-        eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: PolicyKit rule file not found at assets/50-fairshare.rules".bright_yellow());
+        eprintln!(
+            "{} {}",
+            "⚠".bright_yellow().bold(),
+            "Warning: PolicyKit rule file not found at assets/50-fairshare.rules".bright_yellow()
+        );
     }
 
     // Install PolicyKit localauthority file (.pkla) for older PolicyKit versions (0.105 and earlier)
@@ -445,17 +555,30 @@ pub fn admin_setup_defaults(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u
 
         match polkit_restart {
             Ok(status) if status.success() => {
-                println!("{} {}", "✓".green().bold(), "Restarted polkit.service to apply policies".bright_white());
+                println!(
+                    "{} {}",
+                    "✓".green().bold(),
+                    "Restarted polkit.service to apply policies".bright_white()
+                );
             }
             Ok(_) => {
                 eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
             }
             Err(e) => {
-                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+                eprintln!(
+                    "{} {}",
+                    "⚠".bright_yellow().bold(),
+                    format!("Warning: Could not restart polkit.service: {}", e).bright_yellow()
+                );
             }
         }
     } else {
-        eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: PolicyKit localauthority file not found at assets/50-fairshare.pkla".bright_yellow());
+        eprintln!(
+            "{} {}",
+            "⚠".bright_yellow().bold(),
+            "Warning: PolicyKit localauthority file not found at assets/50-fairshare.pkla"
+                .bright_yellow()
+        );
     }
 
     Ok(())
@@ -500,13 +623,15 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
                     match result {
                         Ok(output) => {
                             if output.status.success() {
-                                println!("{} Reverted limits for user {} (UID: {})",
+                                println!(
+                                    "{} Reverted limits for user {} (UID: {})",
                                     "✓".green().bold(),
                                     username.bright_yellow(),
                                     alloc.uid.bright_white()
                                 );
                             } else {
-                                println!("{} Failed to revert limits for user {} (UID: {}): {}",
+                                println!(
+                                    "{} Failed to revert limits for user {} (UID: {}): {}",
                                     "⚠".bright_yellow().bold(),
                                     username.bright_yellow(),
                                     alloc.uid.bright_white(),
@@ -515,7 +640,8 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
                             }
                         }
                         Err(e) => {
-                            println!("{} Could not revert limits for user {} (UID: {}): {}",
+                            println!(
+                                "{} Could not revert limits for user {} (UID: {}): {}",
                                 "⚠".bright_yellow().bold(),
                                 username.bright_yellow(),
                                 alloc.uid.bright_white(),
@@ -528,8 +654,11 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
             }
         }
         Err(e) => {
-            println!("{} Warning: Could not query systemd to revert user allocations: {}",
-                "⚠".bright_yellow().bold(), e);
+            println!(
+                "{} Warning: Could not query systemd to revert user allocations: {}",
+                "⚠".bright_yellow().bold(),
+                e
+            );
         }
     }
 
@@ -545,11 +674,19 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
                     if name_str.starts_with("user-") && name_str.ends_with(".slice.d") {
                         match fs::remove_dir_all(&path) {
                             Ok(()) => {
-                                println!("{} Removed {}", "✓".green().bold(), path.display().to_string().bright_white());
+                                println!(
+                                    "{} Removed {}",
+                                    "✓".green().bold(),
+                                    path.display().to_string().bright_white()
+                                );
                             }
                             Err(e) => {
-                                println!("{} Warning: Could not remove {}: {}",
-                                    "⚠".bright_yellow().bold(), path.display().to_string().bright_white(), e);
+                                println!(
+                                    "{} Warning: Could not remove {}: {}",
+                                    "⚠".bright_yellow().bold(),
+                                    path.display().to_string().bright_white(),
+                                    e
+                                );
                             }
                         }
                     }
@@ -561,29 +698,53 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
     // Remove systemd configuration file
     if systemd_conf_path.exists() {
         fs::remove_file(systemd_conf_path)?;
-        println!("{} Removed {}", "✓".green().bold(), systemd_conf_path.display().to_string().bright_white());
+        println!(
+            "{} Removed {}",
+            "✓".green().bold(),
+            systemd_conf_path.display().to_string().bright_white()
+        );
     } else {
-        println!("{} {} (not found)", "→".bright_white(), systemd_conf_path.display().to_string().bright_white());
+        println!(
+            "{} {} (not found)",
+            "→".bright_white(),
+            systemd_conf_path.display().to_string().bright_white()
+        );
     }
 
     // Remove policy configuration file
     if policy_path.exists() {
         fs::remove_file(policy_path)?;
-        println!("{} Removed {}", "✓".green().bold(), policy_path.display().to_string().bright_white());
+        println!(
+            "{} Removed {}",
+            "✓".green().bold(),
+            policy_path.display().to_string().bright_white()
+        );
     } else {
-        println!("{} {} (not found)", "→".bright_white(), policy_path.display().to_string().bright_white());
+        println!(
+            "{} {} (not found)",
+            "→".bright_white(),
+            policy_path.display().to_string().bright_white()
+        );
     }
 
     // Remove fairshare directory if it's empty
     if fairshare_dir.exists() {
         match fs::remove_dir(fairshare_dir) {
             Ok(()) => {
-                println!("{} Removed {}", "✓".green().bold(), fairshare_dir.display().to_string().bright_white());
+                println!(
+                    "{} Removed {}",
+                    "✓".green().bold(),
+                    fairshare_dir.display().to_string().bright_white()
+                );
             }
             Err(e) => {
                 // Directory might not be empty, which is fine
                 if e.kind() == io::ErrorKind::Other || !fairshare_dir.read_dir()?.next().is_some() {
-                    println!("{} {} (not empty or already removed)", "→".bright_white(), fairshare_dir.display().to_string().bright_white());
+                    println!(
+                        "{} {} (not empty or already removed)",
+                        "→".bright_white(),
+                        fairshare_dir.display().to_string().bright_white()
+                    );
                 } else {
                     return Err(e);
                 }
@@ -594,15 +755,27 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
     // Remove PolicyKit policy file
     if polkit_policy_path.exists() {
         fs::remove_file(polkit_policy_path)?;
-        println!("{} Removed {}", "✓".green().bold(), polkit_policy_path.display().to_string().bright_white());
+        println!(
+            "{} Removed {}",
+            "✓".green().bold(),
+            polkit_policy_path.display().to_string().bright_white()
+        );
     } else {
-        println!("{} {} (not found)", "→".bright_white(), polkit_policy_path.display().to_string().bright_white());
+        println!(
+            "{} {} (not found)",
+            "→".bright_white(),
+            polkit_policy_path.display().to_string().bright_white()
+        );
     }
 
     // Remove PolicyKit rule file
     if polkit_rule_path.exists() {
         fs::remove_file(polkit_rule_path)?;
-        println!("{} Removed {}", "✓".green().bold(), polkit_rule_path.display().to_string().bright_white());
+        println!(
+            "{} Removed {}",
+            "✓".green().bold(),
+            polkit_rule_path.display().to_string().bright_white()
+        );
 
         // Restart polkit service to apply the rule removal
         let polkit_restart = Command::new("systemctl")
@@ -612,23 +785,39 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
 
         match polkit_restart {
             Ok(status) if status.success() => {
-                println!("{} {}", "✓".green().bold(), "Restarted polkit.service".bright_white());
+                println!(
+                    "{} {}",
+                    "✓".green().bold(),
+                    "Restarted polkit.service".bright_white()
+                );
             }
             Ok(_) => {
                 eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
             }
             Err(e) => {
-                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+                eprintln!(
+                    "{} {}",
+                    "⚠".bright_yellow().bold(),
+                    format!("Warning: Could not restart polkit.service: {}", e).bright_yellow()
+                );
             }
         }
     } else {
-        println!("{} {} (not found)", "→".bright_white(), polkit_rule_path.display().to_string().bright_white());
+        println!(
+            "{} {} (not found)",
+            "→".bright_white(),
+            polkit_rule_path.display().to_string().bright_white()
+        );
     }
 
     // Remove PolicyKit localauthority file (.pkla)
     if polkit_pkla_path.exists() {
         fs::remove_file(polkit_pkla_path)?;
-        println!("{} Removed {}", "✓".green().bold(), polkit_pkla_path.display().to_string().bright_white());
+        println!(
+            "{} Removed {}",
+            "✓".green().bold(),
+            polkit_pkla_path.display().to_string().bright_white()
+        );
 
         // Restart polkit service to apply the pkla removal (if not already restarted above)
         let polkit_restart = Command::new("systemctl")
@@ -638,27 +827,46 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
 
         match polkit_restart {
             Ok(status) if status.success() => {
-                println!("{} {}", "✓".green().bold(), "Restarted polkit.service to apply policy removal".bright_white());
+                println!(
+                    "{} {}",
+                    "✓".green().bold(),
+                    "Restarted polkit.service to apply policy removal".bright_white()
+                );
             }
             Ok(_) => {
                 eprintln!("{} {}", "⚠".bright_yellow().bold(), "Warning: Failed to restart polkit.service - you may need to restart it manually".bright_yellow());
             }
             Err(e) => {
-                eprintln!("{} {}", "⚠".bright_yellow().bold(), format!("Warning: Could not restart polkit.service: {}", e).bright_yellow());
+                eprintln!(
+                    "{} {}",
+                    "⚠".bright_yellow().bold(),
+                    format!("Warning: Could not restart polkit.service: {}", e).bright_yellow()
+                );
             }
         }
     } else {
-        println!("{} {} (not found)", "→".bright_white(), polkit_pkla_path.display().to_string().bright_white());
+        println!(
+            "{} {} (not found)",
+            "→".bright_white(),
+            polkit_pkla_path.display().to_string().bright_white()
+        );
     }
 
     // Reload systemd daemon to apply changes
     let status = Command::new("systemctl").arg("daemon-reload").status()?;
     if status.success() {
-        println!("{} {}", "✓".green().bold(), "Reloaded systemd daemon".bright_white());
+        println!(
+            "{} {}",
+            "✓".green().bold(),
+            "Reloaded systemd daemon".bright_white()
+        );
     } else {
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("Failed to reload systemd daemon (exit code: {:?})", status.code()),
+            format!(
+                "Failed to reload systemd daemon (exit code: {:?})",
+                status.code()
+            ),
         ));
     }
 
@@ -667,7 +875,13 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
 
 /// Reset fairshare by performing a complete uninstall followed by setup with new defaults.
 /// This combines admin_uninstall_defaults() and admin_setup_defaults() into one operation.
-pub fn admin_reset(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u32, force: bool) -> io::Result<()> {
+pub fn admin_reset(
+    cpu: u32,
+    mem: u32,
+    cpu_reserve: u32,
+    mem_reserve: u32,
+    force: bool,
+) -> io::Result<()> {
     // Show warning if not forced
     if !force {
         eprintln!("{} {}",
@@ -677,8 +891,15 @@ pub fn admin_reset(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u32, force
         eprintln!("{} {}", "  This will:".bright_white().bold(), "");
         eprintln!("    - Revert all active user allocations");
         eprintln!("    - Remove all fairshare configuration files");
-        eprintln!("    - Setup new defaults with {} CPUs and {}G RAM per user", cpu, mem);
-        eprint!("\n{} {}", "Continue?".bright_white().bold(), "[y/N]: ".bright_white());
+        eprintln!(
+            "    - Setup new defaults with {} CPUs and {}G RAM per user",
+            cpu, mem
+        );
+        eprint!(
+            "\n{} {}",
+            "Continue?".bright_white().bold(),
+            "[y/N]: ".bright_white()
+        );
         std::io::Write::flush(&mut std::io::stderr()).ok();
 
         let mut input = String::new();
@@ -689,28 +910,59 @@ pub fn admin_reset(cpu: u32, mem: u32, cpu_reserve: u32, mem_reserve: u32, force
         }
     }
 
-    println!("{}", "╔═══════════════════════════════════════╗".bright_cyan());
-    println!("{}", "║      FAIRSHARE RESET IN PROGRESS     ║".bright_cyan().bold());
-    println!("{}", "╚═══════════════════════════════════════╝".bright_cyan());
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║      FAIRSHARE RESET IN PROGRESS     ║"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════╝".bright_cyan()
+    );
     println!();
 
     // Step 1: Uninstall
-    println!("{} {}", "→".bright_cyan().bold(), "Step 1/2: Uninstalling existing configuration...".bright_white());
+    println!(
+        "{} {}",
+        "→".bright_cyan().bold(),
+        "Step 1/2: Uninstalling existing configuration...".bright_white()
+    );
     println!();
     admin_uninstall_defaults()?;
     println!();
 
     // Step 2: Setup
-    println!("{} {}", "→".bright_cyan().bold(), "Step 2/2: Setting up new defaults...".bright_white());
+    println!(
+        "{} {}",
+        "→".bright_cyan().bold(),
+        "Step 2/2: Setting up new defaults...".bright_white()
+    );
     println!();
     admin_setup_defaults(cpu, mem, cpu_reserve, mem_reserve)?;
     println!();
 
-    println!("{}", "╔═══════════════════════════════════════╗".bright_green());
-    println!("{}", "║        RESET COMPLETED SUCCESSFULLY   ║".bright_green().bold());
-    println!("{}", "╚═══════════════════════════════════════╝".bright_green());
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════╗".bright_green()
+    );
+    println!(
+        "{}",
+        "║        RESET COMPLETED SUCCESSFULLY   ║"
+            .bright_green()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════╝".bright_green()
+    );
     println!();
-    println!("{} New defaults: {} {}",
+    println!(
+        "{} New defaults: {} {}",
         "✓".green().bold(),
         format!("CPUQuota={}%", cpu * 100).bright_yellow(),
         format!("MemoryMax={}G", mem).bright_yellow()
@@ -732,11 +984,13 @@ mod tests {
 
         let expected_slice_config = format!(
             "[Slice]\nCPUQuota={}%\nMemoryMax={}\n",
-            cpu_quota,
-            mem_bytes
+            cpu_quota, mem_bytes
         );
 
-        assert_eq!(expected_slice_config, "[Slice]\nCPUQuota=200%\nMemoryMax=4000000000\n");
+        assert_eq!(
+            expected_slice_config,
+            "[Slice]\nCPUQuota=200%\nMemoryMax=4000000000\n"
+        );
 
         let max_cpu_cap = cpu.checked_mul(10).unwrap();
         let expected_policy = format!(
@@ -796,12 +1050,18 @@ mod tests {
         let huge_mem = u32::MAX; // 4_294_967_295 GB
         let result = (huge_mem as u64).checked_mul(1_000_000_000);
         // This should NOT overflow because u32::MAX * 1 billion < u64::MAX
-        assert!(result.is_some(), "u32::MAX GB should not overflow when converted to bytes");
+        assert!(
+            result.is_some(),
+            "u32::MAX GB should not overflow when converted to bytes"
+        );
 
         // To actually test overflow, we need a u64 value larger than u64::MAX / 1_000_000_000
         let overflow_mem = 18_446_744_074u64; // Just above safe limit
         let result = overflow_mem.checked_mul(1_000_000_000);
-        assert!(result.is_none(), "Expected overflow for value above u64::MAX / 1 billion");
+        assert!(
+            result.is_none(),
+            "Expected overflow for value above u64::MAX / 1 billion"
+        );
     }
 
     #[test]
@@ -893,10 +1153,16 @@ mod tests {
 
         if let Err(e) = result {
             let error_msg = format!("{}", e);
-            assert!(error_msg.contains("exceeds maximum limit"),
-                    "Error should mention exceeding limit: {}", error_msg);
-            assert!(error_msg.contains(&(MAX_CPU + 1).to_string()),
-                    "Error should contain the invalid CPU value: {}", error_msg);
+            assert!(
+                error_msg.contains("exceeds maximum limit"),
+                "Error should mention exceeding limit: {}",
+                error_msg
+            );
+            assert!(
+                error_msg.contains(&(MAX_CPU + 1).to_string()),
+                "Error should contain the invalid CPU value: {}",
+                error_msg
+            );
         }
     }
 
@@ -910,10 +1176,16 @@ mod tests {
 
         if let Err(e) = result {
             let error_msg = format!("{}", e);
-            assert!(error_msg.contains("exceeds maximum limit"),
-                    "Error should mention exceeding limit: {}", error_msg);
-            assert!(error_msg.contains(&(MAX_MEM + 1).to_string()),
-                    "Error should contain the invalid memory value: {}", error_msg);
+            assert!(
+                error_msg.contains("exceeds maximum limit"),
+                "Error should mention exceeding limit: {}",
+                error_msg
+            );
+            assert!(
+                error_msg.contains(&(MAX_MEM + 1).to_string()),
+                "Error should contain the invalid memory value: {}",
+                error_msg
+            );
         }
     }
 
@@ -927,8 +1199,11 @@ mod tests {
 
         if let Err(e) = result {
             let error_msg = format!("{}", e);
-            assert!(error_msg.contains("exceeds maximum limit"),
-                    "Error should mention exceeding limit: {}", error_msg);
+            assert!(
+                error_msg.contains("exceeds maximum limit"),
+                "Error should mention exceeding limit: {}",
+                error_msg
+            );
         }
     }
 
@@ -942,8 +1217,11 @@ mod tests {
 
         if let Err(e) = result {
             let error_msg = format!("{}", e);
-            assert!(error_msg.contains("exceeds maximum limit"),
-                    "Error should mention exceeding limit: {}", error_msg);
+            assert!(
+                error_msg.contains("exceeds maximum limit"),
+                "Error should mention exceeding limit: {}",
+                error_msg
+            );
         }
     }
 
@@ -963,9 +1241,18 @@ mod tests {
 
         for (gb, expected_bytes) in conversions {
             let result = (gb as u64).checked_mul(1_000_000_000);
-            assert!(result.is_some(), "Conversion of {} GB should not overflow", gb);
-            assert_eq!(result.unwrap(), expected_bytes,
-                      "Conversion of {} GB should equal {} bytes", gb, expected_bytes);
+            assert!(
+                result.is_some(),
+                "Conversion of {} GB should not overflow",
+                gb
+            );
+            assert_eq!(
+                result.unwrap(),
+                expected_bytes,
+                "Conversion of {} GB should equal {} bytes",
+                gb,
+                expected_bytes
+            );
         }
     }
 
@@ -985,9 +1272,18 @@ mod tests {
 
         for (cpu, expected_quota) in calculations {
             let result = cpu.checked_mul(100);
-            assert!(result.is_some(), "Quota calculation for {} CPU should not overflow", cpu);
-            assert_eq!(result.unwrap(), expected_quota,
-                      "Quota for {} CPU should equal {}", cpu, expected_quota);
+            assert!(
+                result.is_some(),
+                "Quota calculation for {} CPU should not overflow",
+                cpu
+            );
+            assert_eq!(
+                result.unwrap(),
+                expected_quota,
+                "Quota for {} CPU should equal {}",
+                cpu,
+                expected_quota
+            );
         }
     }
 
@@ -1007,9 +1303,18 @@ mod tests {
 
         for (cpu, expected_cap) in calculations {
             let result = cpu.checked_mul(10);
-            assert!(result.is_some(), "Max cap calculation for {} CPU should not overflow", cpu);
-            assert_eq!(result.unwrap(), expected_cap,
-                      "Max cap for {} CPU should equal {}", cpu, expected_cap);
+            assert!(
+                result.is_some(),
+                "Max cap calculation for {} CPU should not overflow",
+                cpu
+            );
+            assert_eq!(
+                result.unwrap(),
+                expected_cap,
+                "Max cap for {} CPU should equal {}",
+                cpu,
+                expected_cap
+            );
         }
     }
 
@@ -1019,9 +1324,17 @@ mod tests {
         use crate::cli::MAX_CPU;
 
         let result = MAX_CPU.checked_mul(100);
-        assert!(result.is_some(), "MAX_CPU ({}) should not overflow when multiplied by 100", MAX_CPU);
-        assert_eq!(result.unwrap(), MAX_CPU as u32 * 100,
-                  "MAX_CPU quota should be {} * 100", MAX_CPU);
+        assert!(
+            result.is_some(),
+            "MAX_CPU ({}) should not overflow when multiplied by 100",
+            MAX_CPU
+        );
+        assert_eq!(
+            result.unwrap(),
+            MAX_CPU as u32 * 100,
+            "MAX_CPU quota should be {} * 100",
+            MAX_CPU
+        );
     }
 
     #[test]
@@ -1030,9 +1343,17 @@ mod tests {
         use crate::cli::MAX_MEM;
 
         let result = (MAX_MEM as u64).checked_mul(1_000_000_000);
-        assert!(result.is_some(), "MAX_MEM ({}) should not overflow when converted to bytes", MAX_MEM);
-        assert_eq!(result.unwrap(), MAX_MEM as u64 * 1_000_000_000,
-                  "MAX_MEM conversion should be {} * 1 billion", MAX_MEM);
+        assert!(
+            result.is_some(),
+            "MAX_MEM ({}) should not overflow when converted to bytes",
+            MAX_MEM
+        );
+        assert_eq!(
+            result.unwrap(),
+            MAX_MEM as u64 * 1_000_000_000,
+            "MAX_MEM conversion should be {} * 1 billion",
+            MAX_MEM
+        );
     }
 
     #[test]
@@ -1041,9 +1362,17 @@ mod tests {
         use crate::cli::MAX_CPU;
 
         let result = MAX_CPU.checked_mul(10);
-        assert!(result.is_some(), "MAX_CPU ({}) should not overflow when multiplied by 10 for caps", MAX_CPU);
-        assert_eq!(result.unwrap(), MAX_CPU as u32 * 10,
-                  "MAX_CPU cap should be {} * 10", MAX_CPU);
+        assert!(
+            result.is_some(),
+            "MAX_CPU ({}) should not overflow when multiplied by 10 for caps",
+            MAX_CPU
+        );
+        assert_eq!(
+            result.unwrap(),
+            MAX_CPU as u32 * 10,
+            "MAX_CPU cap should be {} * 10",
+            MAX_CPU
+        );
     }
 
     #[test]
@@ -1106,14 +1435,23 @@ mod tests {
             let error_msg = format!("{}", e);
             // Check that error message includes:
             // 1. The invalid value
-            assert!(error_msg.contains(&invalid_cpu.to_string()),
-                   "Error message should include the invalid value: {}", error_msg);
+            assert!(
+                error_msg.contains(&invalid_cpu.to_string()),
+                "Error message should include the invalid value: {}",
+                error_msg
+            );
             // 2. The limit
-            assert!(error_msg.contains(&MAX_CPU.to_string()),
-                   "Error message should include the max limit: {}", error_msg);
+            assert!(
+                error_msg.contains(&MAX_CPU.to_string()),
+                "Error message should include the max limit: {}",
+                error_msg
+            );
             // 3. A description of what went wrong
-            assert!(error_msg.contains("exceeds"),
-                   "Error message should indicate exceeding: {}", error_msg);
+            assert!(
+                error_msg.contains("exceeds"),
+                "Error message should indicate exceeding: {}",
+                error_msg
+            );
         }
     }
 
@@ -1128,16 +1466,22 @@ mod tests {
         // Just verify it doesn't error on validation
         if let Err(e) = min_result {
             let error_msg = format!("{}", e);
-            assert!(!error_msg.contains("exceeds maximum limit"),
-                   "Minimum values should not fail validation: {}", error_msg);
+            assert!(
+                !error_msg.contains("exceeds maximum limit"),
+                "Minimum values should not fail validation: {}",
+                error_msg
+            );
         }
 
         let max_result = super::set_user_limits(MAX_CPU, MAX_MEM);
         // Just verify it doesn't error on validation
         if let Err(e) = max_result {
             let error_msg = format!("{}", e);
-            assert!(!error_msg.contains("exceeds maximum limit"),
-                   "Maximum valid values should not fail validation: {}", error_msg);
+            assert!(
+                !error_msg.contains("exceeds maximum limit"),
+                "Maximum valid values should not fail validation: {}",
+                error_msg
+            );
         }
     }
 
@@ -1149,8 +1493,11 @@ mod tests {
 
         if let Err(e) = result {
             let error_msg = format!("{}", e);
-            assert!(error_msg.contains("exceeds maximum limit"),
-                   "Should indicate input validation failure: {}", error_msg);
+            assert!(
+                error_msg.contains("exceeds maximum limit"),
+                "Should indicate input validation failure: {}",
+                error_msg
+            );
         }
     }
 
@@ -1170,11 +1517,17 @@ mod tests {
         assert!(result.is_err(), "Should reject root UID (0)");
 
         if let Err(e) = result {
-            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied,
-                      "Should return PermissionDenied error kind");
+            assert_eq!(
+                e.kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "Should return PermissionDenied error kind"
+            );
             let error_msg = format!("{}", e);
-            assert!(error_msg.contains("Cannot modify root user slice"),
-                   "Error should mention root user: {}", error_msg);
+            assert!(
+                error_msg.contains("Cannot modify root user slice"),
+                "Error should mention root user: {}",
+                error_msg
+            );
         }
 
         // Restore original PKEXEC_UID or remove it
@@ -1203,11 +1556,19 @@ mod tests {
             assert!(result.is_err(), "Should reject system UID {}", uid);
 
             if let Err(e) = result {
-                assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied,
-                          "Should return PermissionDenied for UID {}", uid);
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::PermissionDenied,
+                    "Should return PermissionDenied for UID {}",
+                    uid
+                );
                 let error_msg = format!("{}", e);
-                assert!(error_msg.contains("Cannot modify system user slice"),
-                       "Error should mention system user for UID {}: {}", uid, error_msg);
+                assert!(
+                    error_msg.contains("Cannot modify system user slice"),
+                    "Error should mention system user for UID {}: {}",
+                    uid,
+                    error_msg
+                );
             }
         }
 
@@ -1267,16 +1628,29 @@ mod tests {
             env::set_var("PKEXEC_UID", nonexistent_uid.to_string());
 
             let result = super::get_calling_user_uid();
-            assert!(result.is_err(), "Should reject non-existent UID {}", nonexistent_uid);
+            assert!(
+                result.is_err(),
+                "Should reject non-existent UID {}",
+                nonexistent_uid
+            );
 
             if let Err(e) = result {
-                assert_eq!(e.kind(), std::io::ErrorKind::NotFound,
-                          "Should return NotFound error kind");
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "Should return NotFound error kind"
+                );
                 let error_msg = format!("{}", e);
-                assert!(error_msg.contains("does not exist"),
-                       "Error should mention user doesn't exist: {}", error_msg);
-                assert!(error_msg.contains(&nonexistent_uid.to_string()),
-                       "Error should include the UID: {}", error_msg);
+                assert!(
+                    error_msg.contains("does not exist"),
+                    "Error should mention user doesn't exist: {}",
+                    error_msg
+                );
+                assert!(
+                    error_msg.contains(&nonexistent_uid.to_string()),
+                    "Error should include the UID: {}",
+                    error_msg
+                );
             }
         }
 
@@ -1306,11 +1680,18 @@ mod tests {
             assert!(result.is_err(), "Should reject invalid format: {}", invalid);
 
             if let Err(e) = result {
-                assert_eq!(e.kind(), std::io::ErrorKind::InvalidData,
-                          "Should return InvalidData for format: {}", invalid);
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::InvalidData,
+                    "Should return InvalidData for format: {}",
+                    invalid
+                );
                 let error_msg = format!("{}", e);
-                assert!(error_msg.contains("Invalid PKEXEC_UID"),
-                       "Error should mention invalid PKEXEC_UID for: {}", invalid);
+                assert!(
+                    error_msg.contains("Invalid PKEXEC_UID"),
+                    "Error should mention invalid PKEXEC_UID for: {}",
+                    invalid
+                );
             }
         }
 
@@ -1345,8 +1726,11 @@ mod tests {
         if result.is_err() {
             if let Err(e) = result {
                 // Should either pass or fail with NotFound (not PermissionDenied)
-                assert_ne!(e.kind(), std::io::ErrorKind::PermissionDenied,
-                          "UID 1000 should pass validation checks (not be rejected as system user)");
+                assert_ne!(
+                    e.kind(),
+                    std::io::ErrorKind::PermissionDenied,
+                    "UID 1000 should pass validation checks (not be rejected as system user)"
+                );
             }
         }
 

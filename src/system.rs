@@ -1,11 +1,11 @@
-use std::process::Command;
-use std::io;
-use std::fs;
-use sysinfo::System;
 use colored::*;
-use comfy_table::{Table, presets::UTF8_FULL, modifiers::UTF8_ROUND_CORNERS, Cell, Color};
-use users::{get_user_by_uid, uid_t};
+use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
 use serde::Deserialize;
+use std::fs;
+use std::io;
+use std::process::Command;
+use sysinfo::System;
+use users::{get_user_by_uid, uid_t};
 
 #[derive(Deserialize)]
 struct PolicyConfig {
@@ -41,12 +41,10 @@ pub fn get_system_cpu_reserve() -> u32 {
     let policy_path = "/etc/fairshare/policy.toml";
 
     match fs::read_to_string(policy_path) {
-        Ok(contents) => {
-            match toml::from_str::<PolicyConfig>(&contents) {
-                Ok(config) => config.defaults.cpu_reserve,
-                Err(_) => 0,
-            }
-        }
+        Ok(contents) => match toml::from_str::<PolicyConfig>(&contents) {
+            Ok(config) => config.defaults.cpu_reserve,
+            Err(_) => 0,
+        },
         Err(_) => 0,
     }
 }
@@ -57,12 +55,10 @@ pub fn get_system_mem_reserve() -> u32 {
     let policy_path = "/etc/fairshare/policy.toml";
 
     match fs::read_to_string(policy_path) {
-        Ok(contents) => {
-            match toml::from_str::<PolicyConfig>(&contents) {
-                Ok(config) => config.defaults.mem_reserve,
-                Err(_) => 0,
-            }
-        }
+        Ok(contents) => match toml::from_str::<PolicyConfig>(&contents) {
+            Ok(config) => config.defaults.mem_reserve,
+            Err(_) => 0,
+        },
         Err(_) => 0,
     }
 }
@@ -90,17 +86,28 @@ pub fn get_user_allocations() -> io::Result<Vec<UserAlloc>> {
 // Get allocations by querying systemd directly
 fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
     let output = Command::new("systemctl")
-        .args(["list-units", "--type=slice", "--all", "--no-legend", "--plain"])
+        .args([
+            "list-units",
+            "--type=slice",
+            "--all",
+            "--no-legend",
+            "--plain",
+        ])
         .output()
-        .map_err(|e| io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to list systemd slices: {}", e)
-        ))?;
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to list systemd slices: {}", e),
+            )
+        })?;
 
     if !output.status.success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("systemctl command failed with exit code: {:?}", output.status.code())
+            format!(
+                "systemctl command failed with exit code: {:?}",
+                output.status.code()
+            ),
         ));
     }
 
@@ -138,10 +145,12 @@ fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
                 "CPUQuotaPerSecUSec",
             ])
             .output()
-            .map_err(|e| io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to get slice info for {}: {}", unit_name, e)
-            ))?;
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Failed to get slice info for {}: {}", unit_name, e),
+                )
+            })?;
 
         let out = String::from_utf8_lossy(&info.stdout);
         let mut mem_bytes = 0;
@@ -207,7 +216,10 @@ pub fn check_request(
 
     // Calculate currently used resources from all users
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
-    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
+    let used_mem: f64 = allocations
+        .iter()
+        .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
+        .sum();
 
     // If the requesting user already has an allocation, subtract it from used resources
     // This allows us to check if the NET INCREASE fits, not the entire new request
@@ -253,15 +265,29 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
     let cpu_reserve = get_system_cpu_reserve() as f64;
     let mem_reserve = get_system_mem_reserve() as f64;
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
-    let used_mem: f64 = allocations.iter().map(|a| a.mem_bytes as f64 / 1_000_000_000.0).sum();
+    let used_mem: f64 = allocations
+        .iter()
+        .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
+        .sum();
     // Subtract the system reserves from available resources
     let available_cpu = totals.total_cpu as f64 - used_cpu - cpu_reserve;
     let available_mem = totals.total_mem_gb - used_mem - mem_reserve;
 
     // System overview table
-    println!("{}", "╔═══════════════════════════════════════╗".bright_cyan());
-    println!("{}", "║      SYSTEM RESOURCE OVERVIEW         ║".bright_cyan().bold());
-    println!("{}", "╚═══════════════════════════════════════╝".bright_cyan());
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║      SYSTEM RESOURCE OVERVIEW         ║"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════╝".bright_cyan()
+    );
     println!();
 
     let mut overview_table = Table::new();
@@ -332,8 +358,7 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
             ]);
 
         for a in allocations {
-            let username = get_username_from_uid(&a.uid)
-                .unwrap_or_else(|| format!("({})", a.uid));
+            let username = get_username_from_uid(&a.uid).unwrap_or_else(|| format!("({})", a.uid));
 
             // Check if user has no custom allocations (both CPU and Memory are 0)
             let has_no_allocation = a.cpu_quota == 0.0 && a.mem_bytes == 0;
@@ -401,13 +426,11 @@ mod tests {
             total_mem_gb: 16.0,
             total_cpu: 8,
         };
-        let allocations = vec![
-            UserAlloc {
-                uid: "1000".to_string(),
-                cpu_quota: 200.0,  // 2 CPUs
-                mem_bytes: 4_000_000_000,  // 4 GB
-            },
-        ];
+        let allocations = vec![UserAlloc {
+            uid: "1000".to_string(),
+            cpu_quota: 200.0,         // 2 CPUs
+            mem_bytes: 4_000_000_000, // 4 GB
+        }];
 
         // Request 2 CPUs and 4 GB - should be allowed
         assert!(check_request(&totals, &allocations, 2, "4", None));
@@ -419,13 +442,11 @@ mod tests {
             total_mem_gb: 16.0,
             total_cpu: 8,
         };
-        let allocations = vec![
-            UserAlloc {
-                uid: "1000".to_string(),
-                cpu_quota: 600.0,  // 6 CPUs
-                mem_bytes: 4_000_000_000,  // 4 GB
-            },
-        ];
+        let allocations = vec![UserAlloc {
+            uid: "1000".to_string(),
+            cpu_quota: 600.0,         // 6 CPUs
+            mem_bytes: 4_000_000_000, // 4 GB
+        }];
 
         // Request 4 CPUs when only 2 are available - should fail
         assert!(!check_request(&totals, &allocations, 4, "4", None));
@@ -437,13 +458,11 @@ mod tests {
             total_mem_gb: 16.0,
             total_cpu: 8,
         };
-        let allocations = vec![
-            UserAlloc {
-                uid: "1000".to_string(),
-                cpu_quota: 200.0,  // 2 CPUs
-                mem_bytes: 12_000_000_000,  // 12 GB
-            },
-        ];
+        let allocations = vec![UserAlloc {
+            uid: "1000".to_string(),
+            cpu_quota: 200.0,          // 2 CPUs
+            mem_bytes: 12_000_000_000, // 12 GB
+        }];
 
         // Request 8 GB when only 4 GB available - should fail
         assert!(!check_request(&totals, &allocations, 2, "8", None));
@@ -458,13 +477,13 @@ mod tests {
         let allocations = vec![
             UserAlloc {
                 uid: "1000".to_string(),
-                cpu_quota: 400.0,  // 4 CPUs
-                mem_bytes: 8_000_000_000,  // 8 GB
+                cpu_quota: 400.0,         // 4 CPUs
+                mem_bytes: 8_000_000_000, // 8 GB
             },
             UserAlloc {
                 uid: "1001".to_string(),
-                cpu_quota: 200.0,  // 2 CPUs
-                mem_bytes: 4_000_000_000,  // 4 GB
+                cpu_quota: 200.0,         // 2 CPUs
+                mem_bytes: 4_000_000_000, // 4 GB
             },
         ];
 
@@ -482,13 +501,11 @@ mod tests {
             total_mem_gb: 16.0,
             total_cpu: 8,
         };
-        let allocations = vec![
-            UserAlloc {
-                uid: "1000".to_string(),
-                cpu_quota: 400.0,  // 4 CPUs
-                mem_bytes: 8_000_000_000,  // 8 GB
-            },
-        ];
+        let allocations = vec![UserAlloc {
+            uid: "1000".to_string(),
+            cpu_quota: 400.0,         // 4 CPUs
+            mem_bytes: 8_000_000_000, // 8 GB
+        }];
 
         // Request exactly what's available
         assert!(check_request(&totals, &allocations, 4, "8", None));
@@ -505,13 +522,13 @@ mod tests {
         let allocations = vec![
             UserAlloc {
                 uid: "1000".to_string(),
-                cpu_quota: 400.0,  // 4 CPUs
-                mem_bytes: 9_000_000_000,  // 9 GB
+                cpu_quota: 400.0,         // 4 CPUs
+                mem_bytes: 9_000_000_000, // 9 GB
             },
             UserAlloc {
                 uid: "1001".to_string(),
-                cpu_quota: 200.0,  // 2 CPUs
-                mem_bytes: 5_000_000_000,  // 5 GB
+                cpu_quota: 200.0,         // 2 CPUs
+                mem_bytes: 5_000_000_000, // 5 GB
             },
         ];
 
@@ -531,7 +548,13 @@ mod tests {
 
         // User 1000 requesting 20 CPUs (too much even with delta)
         // Current: 4 CPUs. Request: 20 CPUs. Net: +16 CPUs. Available: 2 CPUs. Should fail.
-        assert!(!check_request(&totals, &allocations, 20, "10", Some("1000")));
+        assert!(!check_request(
+            &totals,
+            &allocations,
+            20,
+            "10",
+            Some("1000")
+        ));
     }
 
     #[test]
@@ -553,7 +576,11 @@ mod tests {
         assert_eq!(uid, Some("0".to_string()), "Should parse UID 0 correctly");
 
         let uid = parse_uid_from_slice("user-1000.slice");
-        assert_eq!(uid, Some("1000".to_string()), "Should parse UID 1000 correctly");
+        assert_eq!(
+            uid,
+            Some("1000".to_string()),
+            "Should parse UID 1000 correctly"
+        );
     }
 
     #[test]
@@ -565,8 +592,11 @@ mod tests {
         // This test validates the logic by checking that the parsing
         // correctly identifies UID 0 for filtering.
         let uid_0 = parse_uid_from_slice("user-0.slice");
-        assert_eq!(uid_0, Some("0".to_string()),
-                   "Root user-0.slice should parse correctly");
+        assert_eq!(
+            uid_0,
+            Some("0".to_string()),
+            "Root user-0.slice should parse correctly"
+        );
 
         // The actual filtering happens in get_user_allocations(),
         // which skips any entry with UID "0"
