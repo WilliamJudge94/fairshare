@@ -15,95 +15,62 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Build systemd-enabled test container
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            policykit-1 \
-            libpolkit-agent-1-dev \
-            libpolkit-gobject-1-dev \
-            systemd
+          docker build -t fairshare-test -f .devcontainer/Dockerfile .
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-index-
-
-      - name: Cache target directory
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-target-
-
-      - name: Check formatting
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-
-      - name: Check code
-        run: cargo check --verbose
-
-      - name: Build project
-        run: cargo build --verbose
-
-      - name: Run tests
-        run: cargo test --verbose
-
-      - name: Build release binary
-        run: cargo build --release --verbose
-
-  integration-test:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install system dependencies
+      - name: Run tests in systemd container
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            policykit-1 \
-            libpolkit-agent-1-dev \
-            libpolkit-gobject-1-dev \
-            systemd
+          # Start container with systemd as PID 1
+          docker run -d \
+            --name fairshare-test-container \
+            --privileged \
+            --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v ${{ github.workspace }}:/workspaces/fairshare \
+            -w /workspaces/fairshare \
+            fairshare-test
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+          # Wait for systemd to be ready
+          sleep 5
+          docker exec fairshare-test-container systemctl is-system-running --wait || true
 
-      - name: Cache cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # Install PolicyKit
+          docker exec fairshare-test-container bash -c "
+            apt-get update &&
+            apt-get install -y --no-install-recommends policykit-1 &&
+            rm -rf /var/lib/apt/lists/*
+          "
 
-      - name: Build release
-        run: cargo build --release
+          # Install Rust components
+          docker exec fairshare-test-container bash -c "
+            rustup component add rustfmt clippy
+          "
 
-      - name: Run integration tests
-        run: cargo test --test integration_tests --verbose
+          # Create a test user for pkexec testing
+          docker exec fairshare-test-container bash -c "
+            useradd -m -u 1001 testuser || true
+            loginctl enable-linger testuser || true
+          "
 
-      - name: Run CLI tests
-        run: cargo test --test cli_tests --verbose
+          # Check formatting
+          docker exec fairshare-test-container cargo fmt -- --check
+
+          # Run clippy
+          docker exec fairshare-test-container cargo clippy -- -D warnings
+
+          # Check code
+          docker exec fairshare-test-container cargo check --verbose
+
+          # Build project
+          docker exec fairshare-test-container cargo build --verbose
+
+          # Run all tests
+          docker exec fairshare-test-container cargo test --verbose
+
+          # Build release binary
+          docker exec fairshare-test-container cargo build --release --verbose
+
+          # Stop container
+          docker stop fairshare-test-container
+          docker rm fairshare-test-container

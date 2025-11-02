@@ -428,12 +428,14 @@ fn test_request_minimum_valid_values() {
         .output()
         .expect("Failed to execute command");
 
-    // Should either succeed or fail with resource availability, but NOT validation
+    // Should either succeed or fail with resource availability/permission, but NOT validation
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success()
             || stderr.contains("exceeds available")
-            || stderr.contains("resource"),
+            || stderr.contains("resource")
+            || stderr.contains("Interactive authentication required")
+            || stderr.contains("Failed to set user limits"),
         "Expected validation to pass for minimum valid values (1, 1), got: {}",
         stderr
     );
@@ -448,10 +450,14 @@ fn test_request_maximum_valid_values() {
         .output()
         .expect("Failed to execute command");
 
-    // Should either succeed or fail with resource availability, but NOT validation error
+    // Should either succeed or fail with resource availability/permission, but NOT validation error
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        output.status.success() || stderr.contains("exceeds available") || stderr.contains("resource"),
+        output.status.success()
+            || stderr.contains("exceeds available")
+            || stderr.contains("resource")
+            || stderr.contains("Interactive authentication required")
+            || stderr.contains("Failed to set user limits"),
         "Expected validation to pass for maximum valid values (1000, 10000), got validation error: {}",
         stderr
     );
