@@ -95,15 +95,13 @@ fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
         ])
         .output()
         .map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
+            io::Error::other(
                 format!("Failed to list systemd slices: {}", e),
             )
         })?;
 
     if !output.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!(
                 "systemctl command failed with exit code: {:?}",
                 output.status.code()
@@ -146,8 +144,7 @@ fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
             ])
             .output()
             .map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::Other,
+                io::Error::other(
                     format!("Failed to get slice info for {}: {}", unit_name, e),
                 )
             })?;

@@ -123,7 +123,7 @@ fn main() {
                         "⚠".bright_yellow().bold(),
                         "This will remove all fairshare admin configuration!".bright_yellow()
                     );
-                    eprintln!("{} {}", "  Files to be removed:".bright_white().bold(), "");
+                    eprintln!("{} ", "  Files to be removed:".bright_white().bold());
                     eprintln!("    - /etc/systemd/system/user-.slice.d/00-defaults.conf");
                     eprintln!("    - /etc/fairshare/policy.toml");
                     eprintln!("    - /etc/fairshare/ (if empty)");

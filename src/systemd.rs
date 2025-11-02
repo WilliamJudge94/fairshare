@@ -4,7 +4,6 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
-use users;
 
 // Import constants from cli module for validation
 use crate::cli::{MAX_CPU, MAX_MEM};
@@ -97,14 +96,13 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
     // When run via pkexec, we have root privileges and modify system-level user slices
     let status = Command::new("systemctl")
         .arg("set-property")
-        .arg(&format!("user-{}.slice", uid))
+        .arg(format!("user-{}.slice", uid))
         .arg(format!("CPUQuota={}%", cpu_quota))
         .arg(format!("MemoryMax={}", mem_bytes))
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("Failed to set user limits (exit code: {:?})", status.code()),
         ));
     }
@@ -119,12 +117,11 @@ pub fn release_user_limits() -> io::Result<()> {
     // When run via pkexec, we have root privileges and modify system-level user slices
     let status = Command::new("systemctl")
         .arg("revert")
-        .arg(&format!("user-{}.slice", uid))
+        .arg(format!("user-{}.slice", uid))
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!(
                 "Failed to release user limits (exit code: {:?})",
                 status.code()
@@ -147,7 +144,7 @@ pub fn show_user_info() -> io::Result<()> {
     // When run via pkexec, we have root privileges and query system-level user slices
     let output = Command::new("systemctl")
         .arg("show")
-        .arg(&format!("user-{}.slice", uid))
+        .arg(format!("user-{}.slice", uid))
         .arg("-p")
         .arg("MemoryMax")
         .arg("-p")
@@ -262,8 +259,7 @@ fn install_policykit() -> io::Result<()> {
     let update_status = Command::new("apt").args(["update"]).status()?;
 
     if !update_status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "Failed to update apt cache. Please run 'apt update' manually.",
         ));
     }
@@ -275,8 +271,7 @@ fn install_policykit() -> io::Result<()> {
         .status()?;
 
     if !install_status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "Failed to install policykit-1. Please install it manually with: apt install policykit-1"
         ));
     }
@@ -298,6 +293,20 @@ pub fn admin_setup_defaults(
     cpu_reserve: u32,
     mem_reserve: u32,
 ) -> io::Result<()> {
+    // Validate inputs before operations
+    if cpu > MAX_CPU {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU),
+        ));
+    }
+    if mem > MAX_MEM {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM),
+        ));
+    }
+
     // Check if PolicyKit is installed first
     print!("{} ", "→".bright_white());
     print!("{}", "Checking PolicyKit installation...".bright_white());
@@ -323,34 +332,18 @@ pub fn admin_setup_defaults(
                 println!();
             }
             Ok(false) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     "PolicyKit installation declined. Please install policykit-1 manually: apt install policykit-1"
                 ));
             }
             Err(e) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     format!("Failed to read user input: {}", e),
                 ));
             }
         }
     } else {
         println!(" {}", "✓".green().bold());
-    }
-
-    // Validate inputs before operations
-    if cpu > MAX_CPU {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU),
-        ));
-    }
-    if mem > MAX_MEM {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM),
-        ));
     }
 
     let dir = Path::new("/etc/systemd/system/user-.slice.d");
@@ -617,7 +610,7 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
                     // Revert the user's slice at system level (not --user)
                     let result = Command::new("systemctl")
                         .arg("revert")
-                        .arg(&format!("user-{}.slice", alloc.uid))
+                        .arg(format!("user-{}.slice", alloc.uid))
                         .output();
 
                     match result {
@@ -739,7 +732,7 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
             }
             Err(e) => {
                 // Directory might not be empty, which is fine
-                if e.kind() == io::ErrorKind::Other || !fairshare_dir.read_dir()?.next().is_some() {
+                if e.kind() == io::ErrorKind::Other || fairshare_dir.read_dir()?.next().is_none() {
                     println!(
                         "{} {} (not empty or already removed)",
                         "→".bright_white(),
@@ -861,8 +854,7 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
             "Reloaded systemd daemon".bright_white()
         );
     } else {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!(
                 "Failed to reload systemd daemon (exit code: {:?})",
                 status.code()
@@ -888,7 +880,7 @@ pub fn admin_reset(
             "⚠".bright_yellow().bold(),
             "This will remove all fairshare configuration and user allocations, then reinstall with new defaults!".bright_yellow()
         );
-        eprintln!("{} {}", "  This will:".bright_white().bold(), "");
+        eprintln!("{} ", "  This will:".bright_white().bold());
         eprintln!("    - Revert all active user allocations");
         eprintln!("    - Remove all fairshare configuration files");
         eprintln!(
