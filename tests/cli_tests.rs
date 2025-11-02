@@ -606,12 +606,13 @@ fn test_admin_setup_default_values_valid() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     // Should not fail due to validation errors
-    // May fail due to permissions, but that's fine for this test
+    // May fail due to permissions or PolicyKit not being installed, but that's fine for this test
     assert!(
         output.status.success()
             || stderr.contains("Permission")
             || stderr.contains("permission")
-            || stderr.contains("root"),
+            || stderr.contains("root")
+            || stderr.contains("PolicyKit"),
         "Default values should pass validation, got: {}",
         stderr
     );

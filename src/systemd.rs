@@ -102,9 +102,10 @@ pub fn set_user_limits(cpu: u32, mem: u32) -> io::Result<()> {
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::other(
-            format!("Failed to set user limits (exit code: {:?})", status.code()),
-        ));
+        return Err(io::Error::other(format!(
+            "Failed to set user limits (exit code: {:?})",
+            status.code()
+        )));
     }
 
     Ok(())
@@ -121,12 +122,10 @@ pub fn release_user_limits() -> io::Result<()> {
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::other(
-            format!(
-                "Failed to release user limits (exit code: {:?})",
-                status.code()
-            ),
-        ));
+        return Err(io::Error::other(format!(
+            "Failed to release user limits (exit code: {:?})",
+            status.code()
+        )));
     }
 
     Ok(())
@@ -337,9 +336,10 @@ pub fn admin_setup_defaults(
                 ));
             }
             Err(e) => {
-                return Err(io::Error::other(
-                    format!("Failed to read user input: {}", e),
-                ));
+                return Err(io::Error::other(format!(
+                    "Failed to read user input: {}",
+                    e
+                )));
             }
         }
     } else {
@@ -854,12 +854,10 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
             "Reloaded systemd daemon".bright_white()
         );
     } else {
-        return Err(io::Error::other(
-            format!(
-                "Failed to reload systemd daemon (exit code: {:?})",
-                status.code()
-            ),
-        ));
+        return Err(io::Error::other(format!(
+            "Failed to reload systemd daemon (exit code: {:?})",
+            status.code()
+        )));
     }
 
     Ok(())
