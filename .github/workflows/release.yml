@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep -Po '^version = "\K[^"]+' Cargo.toml)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Check if tag already exists
+        id: check-tag
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.version.outputs.version }} already exists, skipping release"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.version.outputs.version }} does not exist, proceeding with release"
+          fi
+
+      - name: Install Rust toolchain
+        if: steps.check-tag.outputs.exists == 'false'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup cross-compilation
+        if: steps.check-tag.outputs.exists == 'false'
+        run: sudo make setup-cross
+
+      - name: Build release binaries
+        if: steps.check-tag.outputs.exists == 'false'
+        run: make compile-releases
+
+      - name: Create release
+        if: steps.check-tag.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "Release ${{ steps.version.outputs.version }}" \
+            --notes "Release version ${{ steps.version.outputs.version }}" \
+            releases/fairshare-x86_64 \
+            releases/fairshare-aarch64 \
+            releases/SHA256SUMS
+
+      - name: Release summary
+        if: steps.check-tag.outputs.exists == 'false'
+        run: |
+          echo "✅ Released ${{ steps.version.outputs.tag }}"
+          echo "📦 Binaries:"
+          ls -lh releases/
