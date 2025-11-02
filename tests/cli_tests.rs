@@ -37,7 +37,11 @@ fn test_status_command() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Check for expected output format (new table-based output)
-    assert!(stdout.contains("SYSTEM RESOURCE OVERVIEW") || stdout.contains("RAM (GB)") || stdout.contains("CPUs"));
+    assert!(
+        stdout.contains("SYSTEM RESOURCE OVERVIEW")
+            || stdout.contains("RAM (GB)")
+            || stdout.contains("CPUs")
+    );
 }
 
 #[test]
@@ -53,11 +57,11 @@ fn test_info_command() {
 
     // Should contain either success output (new formatted output) or an error message
     assert!(
-        stdout.contains("USER RESOURCE ALLOCATION") ||
-        stdout.contains("CPU Quota") ||
-        stdout.contains("Memory Max") ||
-        stderr.contains("Failed") ||
-        output.status.success()
+        stdout.contains("USER RESOURCE ALLOCATION")
+            || stdout.contains("CPU Quota")
+            || stdout.contains("Memory Max")
+            || stderr.contains("Failed")
+            || output.status.success()
     );
 }
 
@@ -106,7 +110,9 @@ fn test_admin_uninstall_command_exists_in_help() {
 
     // Verify the description mentions removing configuration
     assert!(
-        stdout.contains("remove") || stdout.contains("configuration") || stdout.contains("defaults"),
+        stdout.contains("remove")
+            || stdout.contains("configuration")
+            || stdout.contains("defaults"),
         "Expected uninstall description to mention removing configuration"
     );
 }
@@ -136,7 +142,9 @@ fn test_admin_uninstall_help_flag() {
 
     // Verify the description mentions what will be removed
     assert!(
-        stdout.contains("configuration") || stdout.contains("defaults") || stdout.contains("remove"),
+        stdout.contains("configuration")
+            || stdout.contains("defaults")
+            || stdout.contains("remove"),
         "Expected help to describe what uninstall does"
     );
 }
@@ -188,8 +196,7 @@ fn test_admin_uninstall_with_force_flag() {
 
     // Check that we don't see confirmation prompts
     let combined = format!("{}{}", stdout, stderr);
-    let has_confirmation_prompt = combined.contains("Continue?") ||
-                                   combined.contains("[y/N]");
+    let has_confirmation_prompt = combined.contains("Continue?") || combined.contains("[y/N]");
 
     if has_confirmation_prompt {
         panic!("Expected --force to skip confirmation prompt, but found prompt in output");
@@ -283,9 +290,9 @@ fn test_admin_uninstall_mentions_daemon_reload() {
     // If it failed, it should be due to permissions or missing files
     else {
         assert!(
-            stderr.contains("permission") ||
-            stderr.contains("Permission") ||
-            stderr.contains("Failed"),
+            stderr.contains("permission")
+                || stderr.contains("Permission")
+                || stderr.contains("Failed"),
             "Expected failure to be due to permissions or other error"
         );
     }
@@ -303,10 +310,15 @@ fn test_request_cpu_below_minimum() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with CPU=0");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with CPU=0"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
@@ -317,10 +329,15 @@ fn test_request_cpu_above_maximum() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with CPU=2000");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with CPU=2000"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
@@ -331,10 +348,15 @@ fn test_request_mem_below_minimum() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with mem=0");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with mem=0"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
@@ -345,10 +367,15 @@ fn test_request_mem_above_maximum() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with mem=20000");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with mem=20000"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
@@ -359,11 +386,17 @@ fn test_request_negative_cpu() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with negative CPU");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with negative CPU"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     // Clap rejects negative values for unsigned types
-    assert!(stderr.contains("invalid") || stderr.contains("digit"),
-            "Expected validation error for negative value, got: {}", stderr);
+    assert!(
+        stderr.contains("invalid") || stderr.contains("digit"),
+        "Expected validation error for negative value, got: {}",
+        stderr
+    );
 }
 
 #[test]
@@ -374,11 +407,17 @@ fn test_request_negative_mem() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with negative mem");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with negative mem"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     // Clap rejects negative values for unsigned types
-    assert!(stderr.contains("invalid") || stderr.contains("digit"),
-            "Expected validation error for negative value, got: {}", stderr);
+    assert!(
+        stderr.contains("invalid") || stderr.contains("digit"),
+        "Expected validation error for negative value, got: {}",
+        stderr
+    );
 }
 
 #[test]
@@ -392,7 +431,9 @@ fn test_request_minimum_valid_values() {
     // Should either succeed or fail with resource availability, but NOT validation
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        output.status.success() || stderr.contains("exceeds available") || stderr.contains("resource"),
+        output.status.success()
+            || stderr.contains("exceeds available")
+            || stderr.contains("resource"),
         "Expected validation to pass for minimum valid values (1, 1), got: {}",
         stderr
     );
@@ -416,8 +457,11 @@ fn test_request_maximum_valid_values() {
     );
 
     // Should NOT contain range validation errors
-    assert!(!stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
-            "Should pass validation but got range error: {}", stderr);
+    assert!(
+        !stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
+        "Should pass validation but got range error: {}",
+        stderr
+    );
 }
 
 #[test]
@@ -441,7 +485,10 @@ fn test_request_boundary_cpu_1000() {
         .expect("Failed to execute command");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!stderr.contains("not in 1..=1000"), "CPU=1000 should pass validation");
+    assert!(
+        !stderr.contains("not in 1..=1000"),
+        "CPU=1000 should pass validation"
+    );
 }
 
 #[test]
@@ -465,7 +512,10 @@ fn test_request_boundary_mem_10000() {
         .expect("Failed to execute command");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!stderr.contains("not in 1..=10000"), "mem=10000 should pass validation");
+    assert!(
+        !stderr.contains("not in 1..=10000"),
+        "mem=10000 should pass validation"
+    );
 }
 
 #[test]
@@ -476,10 +526,15 @@ fn test_admin_setup_cpu_below_minimum() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with CPU=0");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with CPU=0"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
@@ -490,10 +545,15 @@ fn test_admin_setup_cpu_above_maximum() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with CPU=2000");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with CPU=2000"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
@@ -504,24 +564,36 @@ fn test_admin_setup_mem_below_minimum() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with mem=0");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with mem=0"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
 fn test_admin_setup_mem_above_maximum() {
     // Test that admin setup with memory above maximum is rejected
     let output = Command::new("cargo")
-        .args(["run", "--", "admin", "setup", "--cpu", "2", "--mem", "20000"])
+        .args([
+            "run", "--", "admin", "setup", "--cpu", "2", "--mem", "20000",
+        ])
         .output()
         .expect("Failed to execute command");
 
-    assert!(!output.status.success(), "Expected command to fail with mem=20000");
+    assert!(
+        !output.status.success(),
+        "Expected command to fail with mem=20000"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not in") || stderr.contains("invalid"),
-            "Expected validation error message about range");
+    assert!(
+        stderr.contains("not in") || stderr.contains("invalid"),
+        "Expected validation error message about range"
+    );
 }
 
 #[test]
@@ -536,8 +608,12 @@ fn test_admin_setup_default_values_valid() {
     // Should not fail due to validation errors
     // May fail due to permissions, but that's fine for this test
     assert!(
-        output.status.success() || stderr.contains("Permission") || stderr.contains("permission") || stderr.contains("root"),
-        "Default values should pass validation, got: {}", stderr
+        output.status.success()
+            || stderr.contains("Permission")
+            || stderr.contains("permission")
+            || stderr.contains("root"),
+        "Default values should pass validation, got: {}",
+        stderr
     );
 }
 
@@ -553,7 +629,8 @@ fn test_admin_setup_minimum_valid_values() {
     // Should not have validation range errors
     assert!(
         !stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
-        "Minimum valid values should pass validation, got: {}", stderr
+        "Minimum valid values should pass validation, got: {}",
+        stderr
     );
 }
 
@@ -561,7 +638,9 @@ fn test_admin_setup_minimum_valid_values() {
 fn test_admin_setup_maximum_valid_values() {
     // Test that maximum valid values (1000 CPU, 10000 GB) pass validation for admin setup
     let output = Command::new("cargo")
-        .args(["run", "--", "admin", "setup", "--cpu", "1000", "--mem", "10000"])
+        .args([
+            "run", "--", "admin", "setup", "--cpu", "1000", "--mem", "10000",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -569,6 +648,7 @@ fn test_admin_setup_maximum_valid_values() {
     // Should not have validation range errors
     assert!(
         !stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
-        "Maximum valid values should pass validation, got: {}", stderr
+        "Maximum valid values should pass validation, got: {}",
+        stderr
     );
 }
