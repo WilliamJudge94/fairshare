@@ -192,6 +192,61 @@ fn parse_uid_from_slice(slice_name: &str) -> Option<String> {
     Some(uid_str.to_string())
 }
 
+/// Calculate all available resources for the requesting user
+/// Returns (available_cpu, available_mem_gb) taking into account:
+/// - System reserves
+/// - Other users' allocations
+/// - Requesting user's current allocation (delta-based)
+pub fn calculate_available_resources(
+    totals: &SystemTotals,
+    allocations: &[UserAlloc],
+    requesting_user_uid: Option<&str>,
+) -> (u32, u32) {
+    // Get system reserves
+    let cpu_reserve = get_system_cpu_reserve() as f64;
+    let mem_reserve = get_system_mem_reserve() as f64;
+
+    // Calculate currently used resources from all users
+    let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
+    let used_mem: f64 = allocations
+        .iter()
+        .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
+        .sum();
+
+    // If the requesting user already has an allocation, subtract it from used resources
+    // This allows us to check if the NET INCREASE fits, not the entire new request
+    let (adjusted_used_cpu, adjusted_used_mem) = if let Some(uid) = requesting_user_uid {
+        let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
+        if let Some(alloc) = current_user_alloc {
+            let current_cpu = alloc.cpu_quota / 100.0;
+            let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
+            (used_cpu - current_cpu, used_mem - current_mem)
+        } else {
+            (used_cpu, used_mem)
+        }
+    } else {
+        (used_cpu, used_mem)
+    };
+
+    // Subtract the system reserves from available resources
+    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
+    let available_mem = totals.total_mem_gb - adjusted_used_mem - mem_reserve;
+
+    // Return as u32, ensuring we don't return negative values
+    let available_cpu_u32 = if available_cpu > 0.0 {
+        available_cpu.floor() as u32
+    } else {
+        0
+    };
+    let available_mem_u32 = if available_mem > 0.0 {
+        available_mem.floor() as u32
+    } else {
+        0
+    };
+
+    (available_cpu_u32, available_mem_u32)
+}
+
 pub fn check_request(
     totals: &SystemTotals,
     allocations: &[UserAlloc],

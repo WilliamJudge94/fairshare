@@ -28,14 +28,17 @@ pub enum Commands {
     /// Show system totals and all user allocations
     Status,
 
-    /// Request resources (e.g. --cpu 4 --mem 8)
+    /// Request resources (e.g. --cpu 4 --mem 8, or --all for all available)
     Request {
         /// Number of CPUs to request (1-1000)
-        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
-        cpu: u32,
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64), required_unless_present = "all")]
+        cpu: Option<u32>,
         /// Amount of memory in GB to request (1-10000)
-        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
-        mem: u32,
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64), required_unless_present = "all")]
+        mem: Option<u32>,
+        /// Request all remaining available resources
+        #[arg(long, conflicts_with_all = ["cpu", "mem"])]
+        all: bool,
     },
 
     /// Release all signed-out resources back to default
