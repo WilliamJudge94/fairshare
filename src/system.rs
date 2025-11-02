@@ -192,6 +192,61 @@ fn parse_uid_from_slice(slice_name: &str) -> Option<String> {
     Some(uid_str.to_string())
 }
 
+/// Calculate all available resources for the requesting user
+/// Returns (available_cpu, available_mem_gb) taking into account:
+/// - System reserves
+/// - Other users' allocations
+/// - Requesting user's current allocation (delta-based)
+pub fn calculate_available_resources(
+    totals: &SystemTotals,
+    allocations: &[UserAlloc],
+    requesting_user_uid: Option<&str>,
+) -> (u32, u32) {
+    // Get system reserves
+    let cpu_reserve = get_system_cpu_reserve() as f64;
+    let mem_reserve = get_system_mem_reserve() as f64;
+
+    // Calculate currently used resources from all users
+    let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
+    let used_mem: f64 = allocations
+        .iter()
+        .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
+        .sum();
+
+    // If the requesting user already has an allocation, subtract it from used resources
+    // This allows us to check if the NET INCREASE fits, not the entire new request
+    let (adjusted_used_cpu, adjusted_used_mem) = if let Some(uid) = requesting_user_uid {
+        let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
+        if let Some(alloc) = current_user_alloc {
+            let current_cpu = alloc.cpu_quota / 100.0;
+            let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
+            (used_cpu - current_cpu, used_mem - current_mem)
+        } else {
+            (used_cpu, used_mem)
+        }
+    } else {
+        (used_cpu, used_mem)
+    };
+
+    // Subtract the system reserves from available resources
+    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
+    let available_mem = totals.total_mem_gb - adjusted_used_mem - mem_reserve;
+
+    // Return as u32, ensuring we don't return negative values
+    let available_cpu_u32 = if available_cpu > 0.0 {
+        available_cpu.floor() as u32
+    } else {
+        0
+    };
+    let available_mem_u32 = if available_mem > 0.0 {
+        available_mem.floor() as u32
+    } else {
+        0
+    };
+
+    (available_cpu_u32, available_mem_u32)
+}
+
 pub fn check_request(
     totals: &SystemTotals,
     allocations: &[UserAlloc],
@@ -486,6 +541,10 @@ mod tests {
 
     #[test]
     fn test_check_request_exact_available() {
+        // Get the actual system reserves to ensure test accounts for them
+        let cpu_reserve = get_system_cpu_reserve();
+        let mem_reserve = get_system_mem_reserve();
+
         let totals = SystemTotals {
             total_mem_gb: 16.0,
             total_cpu: 8,
@@ -496,23 +555,48 @@ mod tests {
             mem_bytes: 8_000_000_000, // 8 GB
         }];
 
-        // Request exactly what's available
-        assert!(check_request(&totals, &allocations, 4, "8", None));
+        // Calculate actual available resources considering reserves
+        // Available = Total - Used - Reserve
+        // Available CPU = 8 - 4 - cpu_reserve
+        // Available MEM = 16 - 8 - mem_reserve
+        let available_cpu = (8u32 - 4u32).saturating_sub(cpu_reserve);
+        let available_mem = (16u32 - 8u32).saturating_sub(mem_reserve);
+
+        // Request exactly what's available (should succeed)
+        assert!(check_request(
+            &totals,
+            &allocations,
+            available_cpu,
+            &available_mem.to_string(),
+            None
+        ));
+
+        // Request more than available (should fail)
+        assert!(!check_request(
+            &totals,
+            &allocations,
+            available_cpu + 1,
+            &available_mem.to_string(),
+            None
+        ));
     }
 
     #[test]
     fn test_check_request_user_modifying_own_allocation() {
-        // Scenario: User has 9GB, wants to increase to 10GB, only 2GB free
-        // Should succeed because net increase is 1GB (< 2GB available)
+        // Get the actual system reserves to ensure test accounts for them
+        let cpu_reserve = get_system_cpu_reserve();
+        let mem_reserve = get_system_mem_reserve();
+
+        // Use larger system to accommodate reserves and test scenarios
         let totals = SystemTotals {
-            total_mem_gb: 16.0,
-            total_cpu: 8,
+            total_mem_gb: 32.0,
+            total_cpu: 16,
         };
         let allocations = vec![
             UserAlloc {
                 uid: "1000".to_string(),
-                cpu_quota: 400.0,         // 4 CPUs
-                mem_bytes: 9_000_000_000, // 9 GB
+                cpu_quota: 400.0,          // 4 CPUs
+                mem_bytes: 10_000_000_000, // 10 GB
             },
             UserAlloc {
                 uid: "1001".to_string(),
@@ -521,27 +605,43 @@ mod tests {
             },
         ];
 
-        // User 1000: Total used: 6 CPUs, 14 GB. Available: 2 CPUs, 2 GB
-        // User 1000 requests 5 CPUs and 10 GB (increase of 1 CPU and 1 GB)
-        // Without considering existing allocation, this would fail (2 < 5, 2 < 10)
-        // With delta calculation: needs 1 more CPU and 1 more GB - should succeed
-        assert!(check_request(&totals, &allocations, 5, "10", Some("1000")));
+        // Total used: 6 CPUs, 15 GB
+        // User 1000 requests 5 CPUs and 11 GB (increase of 1 CPU and 1 GB)
+        // Delta: adjusted_used = (6-4, 15-10) = (2 CPUs, 5 GB)
+        // Available = (16 - 2 - cpu_reserve, 32 - 5 - mem_reserve)
+        // With reserves (2, 4): Available = (12, 23)
+        // Request: 5 CPUs, 11 GB - should succeed since 5 <= 12 and 11 <= 23
+        assert!(check_request(&totals, &allocations, 5, "11", Some("1000")));
 
-        // User 1001 trying to request 3 CPUs and 3 GB (decrease)
+        // User 1001 trying to request 1 CPU and 3 GB (decrease from 2 CPUs, 5 GB)
         // Should definitely succeed as this is a decrease
-        assert!(check_request(&totals, &allocations, 3, "3", Some("1001")));
+        assert!(check_request(&totals, &allocations, 1, "3", Some("1001")));
 
-        // New user 1002 requesting 1 CPU and 1 GB (no existing allocation)
-        // Should succeed with available resources
-        assert!(check_request(&totals, &allocations, 1, "1", Some("1002")));
+        // Calculate what's actually available for a new user
+        // Used: 6 CPUs, 15 GB
+        // Available = (16 - 6 - cpu_reserve, 32 - 15 - mem_reserve)
+        // With reserves (2, 4): Available = (8, 13)
+        let avail_cpu_for_new = (16u32 - 6u32).saturating_sub(cpu_reserve);
+        let avail_mem_for_new = (32u32 - 15u32).saturating_sub(mem_reserve);
 
-        // User 1000 requesting 20 CPUs (too much even with delta)
-        // Current: 4 CPUs. Request: 20 CPUs. Net: +16 CPUs. Available: 2 CPUs. Should fail.
+        // New user 1002 requesting within available (should succeed)
+        assert!(check_request(
+            &totals,
+            &allocations,
+            avail_cpu_for_new.min(1),
+            &avail_mem_for_new.min(1).to_string(),
+            Some("1002")
+        ));
+
+        // User 1000 requesting way too much even with delta (should fail)
+        // Current: 4 CPUs. Request: 20 CPUs. Net: +16 CPUs.
+        // Available with delta = (16 - 2 - cpu_reserve) = 12 or less
+        // 20 > 12, so should fail
         assert!(!check_request(
             &totals,
             &allocations,
             20,
-            "10",
+            "15",
             Some("1000")
         ));
     }

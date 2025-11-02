@@ -8,6 +8,91 @@ use colored::*;
 use system::*;
 use systemd::*;
 
+/// Print the "request all" ASCII art
+fn print_request_all_art() {
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡏⠠⢉⠒⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⡊⠉⠒⠲⠤⣄⠀⠀⠀⠀⠀⠀⠀⠀⠉⣹⢸⢳⡈⢢⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢦⠈⣏⠲⡀⢷⡀⠀⠀⠀⠀⠀⣀⠜⢁⡾⠀⢹⡌⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⢀⡀⠀⠀⠀⠀⠀⢷⠸⡆⠹⣄⢳⡀⢀⠤⠒⣋⡤⠖⠋⠀⠀⡼⢃⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⠀⠀⠀⢸⡁⠈⠑⢄⡀⠀⢀⠼⢁⡗⠀⢸⡄⣷⠉⡴⠋⠁⠀⠀⠀⢠⠞⣠⡞⠙⢆⠀⠀⠀⠀⢀⣤⢤⡀⠀⠀⠀⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠙⣆⢰⣄⢳⡼⢁⡴⠋⠀⠀⢸⡇⠛⣸⠁⠀⠀⠀⠀⠀⡏⣴⣿⠇⣰⡄⢳⡀⠀⢀⠾⢠⢀⡧⠀⠀⠀⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⢀⣤⠤⣄⡀⠀⣠⠏⡸⢹⡎⠁⡾⠀⠀⠀⠀⠸⢬⠷⠽⠀⣠⠀⠀⠀⠀⠻⡀⡤⣰⠃⠹⢤⣉⡟⢁⡴⣿⠉⣍⠳⡀⠀⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠈⢷⡀⢀⠸⠾⢁⡼⠁⠸⡇⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠰⠋⠀⠀⠀⠀⠀⠈⠉⠁⠀⠀⢸⠃⢠⡏⠀⢿⣀⣿⢦⠘⡆⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⣳⠄⣷⢠⡎⠀⠀⠀⠙⢦⣷⠀⢸⠄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢧⣀⣷⠀⠀⠈⠁⢨⡇⣽⠀⠀⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⢠⠇⣼⢹⣸⡇⠀⠀⠀⠀⠀⠀⢠⡇⠀⠀⠀⠀⠀⠀⣀⣠⣤⣀⠀⢀⣀⣀⣀⠀⠀⠀⠀⠀⠀⠸⠀⠀⣠⣶⣉⣴⣿⣷⣀⣀⣤".green()
+    );
+    println!(
+        "{}",
+        "⠀⢿⣷⣾⣶⣷⣿⣏⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⢠⡾⠉⣷⣆⡬⢷⡋⣿⠧⠉⢳⡄⠀⠀⠀⠀⠀⠀⠀⢻⣿⣿⣿⣿⣿⣿⣿⣍".green()
+    );
+    println!(
+        "{}",
+        "⢶⣿⣿⣿⣿⣿⣿⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣤⣾⣇⠀⠈⣾⠀⠀⢹⡆⠀⠀⢀⣿⣤⡀⠀⠀⠀⠀⠀⣠⣿⣿⣿⣿⣿⣿⠛⠛".green()
+    );
+    println!(
+        "{}",
+        "⠀⣿⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⣿⣿⣿⣿⣿⣿⡀⢀⣼⣿⣷⣾⣿⣿⣿⣿⣷⣀⡀⢀⣼⣿⣿⣿⣿⣿⡏⠈⠲⠀".green()
+    );
+    println!(
+        "{}",
+        "⠈⠛⢻⡙⣿⣿⣿⣿⣿⣿⣄⠀⠀⠀⢴⣶⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣏⣾⣿⣿⣿⣿⣿⡿⠃⠀⢀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⡼⠧⡈⠻⣿⣿⣿⣿⣿⣷⣄⠀⠀⢹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠛⠒⠀⢀⡼⠃".green()
+    );
+    println!(
+        "{}",
+        "⢀⣠⡇⢠⣌⣡⠼⠻⣿⣿⣿⣿⣿⣧⡀⠿⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⠀⠀⠀⠀⢩⠄⡏".green()
+    );
+    println!(
+        "{}",
+        "⠸⡄⢧⣄⡙⢦⡀⠀⠘⠻⣿⣿⣿⣿⣿⣷⣦⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠋⠀⠀⠀⢀⣀⡤⠞⣰⠏".green()
+    );
+    println!(
+        "{}",
+        "⠀⠳⡈⠳⣌⠉⠀⠀⠀⠀⠀⠹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠃⠀⠀⠀⠀⣼⠀⠶⡾⠁⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠈⠢⣌⣳⡄⠀⠀⢢⡀⠀⠈⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⠀⠀⠀⠀⠀⠙⢲⡆⡇⠀⠀".green()
+    );
+    println!(
+        "{}",
+        "⠀⠀⠀⠀⠊⡹⠃⠀⠀⠀⠃⠀⠀⠀⣹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⣠⠤⠚⢉⡤⠃⠀⠀".green()
+    );
+    println!();
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -24,7 +109,7 @@ fn main() {
             print_status(&totals, &allocations);
         }
 
-        Commands::Request { cpu, mem } => {
+        Commands::Request { cpu, mem, all } => {
             let totals = get_system_totals();
             let allocations = match get_user_allocations() {
                 Ok(allocs) => allocs,
@@ -40,11 +125,32 @@ fn main() {
                 Err(_) => None,
             };
 
+            // Determine actual CPU and memory to request
+            let (actual_cpu, actual_mem) = if *all {
+                // Calculate all available resources
+                let (avail_cpu, avail_mem) =
+                    calculate_available_resources(&totals, &allocations, calling_uid.as_deref());
+
+                if avail_cpu == 0 && avail_mem == 0 {
+                    eprintln!(
+                        "{} {}",
+                        "✗".red().bold(),
+                        "No resources available to allocate.".red()
+                    );
+                    std::process::exit(1);
+                }
+
+                (avail_cpu, avail_mem)
+            } else {
+                // Use the provided CPU and memory values
+                (cpu.unwrap(), mem.unwrap())
+            };
+
             if !check_request(
                 &totals,
                 &allocations,
-                *cpu,
-                &mem.to_string(),
+                actual_cpu,
+                &actual_mem.to_string(),
                 calling_uid.as_deref(),
             ) {
                 eprintln!(
@@ -55,7 +161,7 @@ fn main() {
                 std::process::exit(1);
             }
 
-            if let Err(e) = set_user_limits(*cpu, *mem) {
+            if let Err(e) = set_user_limits(actual_cpu, actual_mem) {
                 eprintln!(
                     "{} {}: {}",
                     "✗".red().bold(),
@@ -68,9 +174,15 @@ fn main() {
             println!(
                 "{} Allocated {} and {}.",
                 "✓".green().bold(),
-                format!("{} CPU(s)", cpu).bright_yellow().bold(),
-                format!("{}G RAM", mem).bright_yellow().bold()
+                format!("{} CPU(s)", actual_cpu).bright_yellow().bold(),
+                format!("{}G RAM", actual_mem).bright_yellow().bold()
             );
+
+            // If --all was used, display the ASCII art
+            if *all {
+                println!();
+                print_request_all_art();
+            }
         }
 
         Commands::Release => {
