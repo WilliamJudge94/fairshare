@@ -39,7 +39,17 @@ jobs:
 
       - name: Setup cross-compilation
         if: steps.check-tag.outputs.exists == 'false'
-        run: sudo make setup-cross
+        run: |
+          # Add Rust targets (doesn't need sudo)
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+
+          # Install cross-compilation tools (needs sudo)
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+          # Configure cargo for aarch64
+          mkdir -p .cargo
+          echo "[target.aarch64-unknown-linux-gnu]" > .cargo/config.toml
+          echo "linker = \"aarch64-linux-gnu-gcc\"" >> .cargo/config.toml
 
       - name: Build release binaries
         if: steps.check-tag.outputs.exists == 'false'
