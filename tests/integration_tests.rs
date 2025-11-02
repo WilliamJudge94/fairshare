@@ -35,10 +35,10 @@ fn test_request_validation() {
 
     // Should either succeed with allocation or fail with permission/resource error
     assert!(
-        stdout.contains("Allocated") ||
-        stderr.contains("Failed") ||
-        stderr.contains("exceeds") ||
-        stderr.contains("permission")
+        stdout.contains("Allocated")
+            || stderr.contains("Failed")
+            || stderr.contains("exceeds")
+            || stderr.contains("permission")
     );
 }
 
@@ -56,10 +56,10 @@ fn test_request_with_invalid_resources() {
 
     // Should indicate failure (either resource limit or permission)
     assert!(
-        !output.status.success() ||
-        stdout.contains("exceeds") ||
-        stderr.contains("Failed") ||
-        stderr.contains("exceeds")
+        !output.status.success()
+            || stdout.contains("exceeds")
+            || stderr.contains("Failed")
+            || stderr.contains("exceeds")
     );
 }
 
@@ -77,9 +77,9 @@ fn test_multiple_command_execution() {
         // Commands should execute without panicking
         // They may fail due to permissions, but should not crash
         assert!(
-            output.status.success() ||
-            String::from_utf8_lossy(&output.stderr).contains("Failed") ||
-            String::from_utf8_lossy(&output.stdout).contains("MemoryMax")
+            output.status.success()
+                || String::from_utf8_lossy(&output.stderr).contains("Failed")
+                || String::from_utf8_lossy(&output.stdout).contains("MemoryMax")
         );
     }
 }

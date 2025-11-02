@@ -1,0 +1,62 @@
+name: Version Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history and tags
+
+      - name: Get current version from Cargo.toml
+        id: current-version
+        run: |
+          CURRENT_VERSION=$(grep -Po '^version = "\K[^"]+' Cargo.toml)
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Get latest git tag
+        id: latest-tag
+        run: |
+          # Get the latest tag, or use 0.0.0 if no tags exist
+          LATEST_TAG=$(git tag -l --sort=-v:refname | head -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="0.0.0"
+          fi
+          # Strip 'v' prefix if present
+          LATEST_TAG=${LATEST_TAG#v}
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "Latest tag: $LATEST_TAG"
+
+      - name: Compare versions
+        run: |
+          CURRENT="${{ steps.current-version.outputs.version }}"
+          LATEST="${{ steps.latest-tag.outputs.tag }}"
+
+          echo "Comparing versions:"
+          echo "  Current (Cargo.toml): $CURRENT"
+          echo "  Latest tag:           $LATEST"
+
+          # Function to compare semantic versions
+          version_gt() {
+              # Returns 0 (true) if $1 > $2, 1 (false) otherwise
+              test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"
+          }
+
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "❌ Error: Version $CURRENT is the same as the latest tag $LATEST"
+            echo "Please increment the version in Cargo.toml"
+            exit 1
+          elif version_gt "$CURRENT" "$LATEST"; then
+            echo "✅ Version check passed: $CURRENT > $LATEST"
+          else
+            echo "❌ Error: Version $CURRENT is not greater than the latest tag $LATEST"
+            echo "Please ensure the version in Cargo.toml is incremented properly"
+            exit 1
+          fi

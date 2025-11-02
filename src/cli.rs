@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, builder::RangedU64ValueParser};
+use clap::{builder::RangedU64ValueParser, Parser, Subcommand};
 
 /// Maximum number of CPUs that can be requested
 pub const MAX_CPU: u32 = 1000;
@@ -13,7 +13,11 @@ pub const MIN_CPU: u32 = 1;
 pub const MIN_MEM: u32 = 1;
 
 #[derive(Parser)]
-#[command(name = "fairshare", version, about = "Systemd-based resource manager for multi-user Linux systems")]
+#[command(
+    name = "fairshare",
+    version,
+    about = "Systemd-based resource manager for multi-user Linux systems"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

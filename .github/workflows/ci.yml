@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build systemd-enabled test container
+        run: |
+          docker build -t fairshare-test -f .devcontainer/Dockerfile .
+
+      - name: Run tests in systemd container
+        run: |
+          # Start container with systemd as PID 1
+          docker run -d \
+            --name fairshare-test-container \
+            --privileged \
+            --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v ${{ github.workspace }}:/workspaces/fairshare \
+            -w /workspaces/fairshare \
+            fairshare-test
+
+          # Wait for systemd to be ready
+          sleep 5
+          docker exec fairshare-test-container systemctl is-system-running --wait || true
+
+          # Install PolicyKit
+          docker exec fairshare-test-container bash -c "
+            apt-get update &&
+            apt-get install -y --no-install-recommends policykit-1 &&
+            rm -rf /var/lib/apt/lists/*
+          "
+
+          # Install Rust components
+          docker exec fairshare-test-container bash -c "
+            rustup component add rustfmt clippy
+          "
+
+          # Create a test user for pkexec testing
+          docker exec fairshare-test-container bash -c "
+            useradd -m -u 1001 testuser || true
+            loginctl enable-linger testuser || true
+          "
+
+          # Check formatting
+          docker exec fairshare-test-container cargo fmt -- --check
+
+          # Run clippy
+          docker exec fairshare-test-container cargo clippy -- -D warnings
+
+          # Check code
+          docker exec fairshare-test-container cargo check --verbose
+
+          # Build project
+          docker exec fairshare-test-container cargo build --verbose
+
+          # Run all tests
+          docker exec fairshare-test-container cargo test --verbose
+
+          # Build release binary
+          docker exec fairshare-test-container cargo build --release --verbose
+
+          # Stop container
+          docker stop fairshare-test-container
+          docker rm fairshare-test-container
