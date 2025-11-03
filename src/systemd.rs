@@ -961,6 +961,299 @@ pub fn admin_reset(
     Ok(())
 }
 
+/// Validate that the service name is allowed
+fn validate_service_name(service_name: &str) -> io::Result<()> {
+    let allowed_services = vec![
+        "docker",
+        "containerd",
+        "podman",
+        "lxc",
+        "libvirtd",
+        "qemu-kvm",
+    ];
+
+    if !allowed_services.contains(&service_name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Service '{}' is not allowed. Allowed services: {}",
+                service_name,
+                allowed_services.join(", ")
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Set resource limits on a system service
+pub fn set_service_limits(service_name: &str, cpu: u32, mem: u32) -> io::Result<()> {
+    // Validate service name
+    validate_service_name(service_name)?;
+
+    // Validate inputs before operations
+    if cpu > MAX_CPU {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU),
+        ));
+    }
+    if mem > MAX_MEM {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM),
+        ));
+    }
+
+    // Convert GB to bytes with overflow checking
+    let mem_bytes = (mem as u64).checked_mul(1_000_000_000).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Memory value {} GB is too large and would cause overflow when converting to bytes",
+                mem
+            ),
+        )
+    })?;
+
+    // Calculate CPU quota with overflow checking
+    let cpu_quota = cpu.checked_mul(100).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "CPU value {} is too large and would cause overflow when calculating quota",
+                cpu
+            ),
+        )
+    })?;
+
+    let unit_name = format!("{}.service", service_name);
+
+    // Check if service exists
+    let check_status = Command::new("systemctl")
+        .args(["show", &unit_name, "-p", "LoadState"])
+        .output()?;
+
+    let output_str = String::from_utf8_lossy(&check_status.stdout);
+    if output_str.contains("LoadState=not-found") {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Service '{}' not found on system", service_name),
+        ));
+    }
+
+    // Set resource limits on the service
+    let status = Command::new("systemctl")
+        .arg("set-property")
+        .arg(&unit_name)
+        .arg(format!("CPUQuota={}%", cpu_quota))
+        .arg(format!("MemoryMax={}", mem_bytes))
+        .status()?;
+
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "Failed to set service limits (exit code: {:?})",
+            status.code()
+        )));
+    }
+
+    println!(
+        "{} Set resource limits for service {}",
+        "✓".green().bold(),
+        service_name.bright_yellow()
+    );
+    println!(
+        "  {} CPUQuota={}% ({} CPUs)",
+        "→".bright_white(),
+        cpu_quota.to_string().bright_white(),
+        cpu.to_string().bright_white()
+    );
+    println!(
+        "  {} MemoryMax={}G",
+        "→".bright_white(),
+        mem.to_string().bright_white()
+    );
+
+    Ok(())
+}
+
+/// Release resource limits from a system service
+pub fn release_service_limits(service_name: &str) -> io::Result<()> {
+    // Validate service name
+    validate_service_name(service_name)?;
+
+    let unit_name = format!("{}.service", service_name);
+
+    // Check if service exists
+    let check_status = Command::new("systemctl")
+        .args(["show", &unit_name, "-p", "LoadState"])
+        .output()?;
+
+    let output_str = String::from_utf8_lossy(&check_status.stdout);
+    if output_str.contains("LoadState=not-found") {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Service '{}' not found on system", service_name),
+        ));
+    }
+
+    // Revert service limits
+    let status = Command::new("systemctl").arg("revert").arg(&unit_name).status()?;
+
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "Failed to release service limits (exit code: {:?})",
+            status.code()
+        )));
+    }
+
+    println!(
+        "{} Released resource limits for service {}",
+        "✓".green().bold(),
+        service_name.bright_yellow()
+    );
+
+    Ok(())
+}
+
+/// Show resource allocation for a specific service
+pub fn show_service_info(service_name: &str) -> io::Result<()> {
+    // Validate service name
+    validate_service_name(service_name)?;
+
+    let unit_name = format!("{}.service", service_name);
+
+    // Check if service exists
+    let check_status = Command::new("systemctl")
+        .args(["show", &unit_name, "-p", "LoadState"])
+        .output()?;
+
+    let output_str = String::from_utf8_lossy(&check_status.stdout);
+    if output_str.contains("LoadState=not-found") {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Service '{}' not found on system", service_name),
+        ));
+    }
+
+    // Get resource limits
+    let output = Command::new("systemctl")
+        .arg("show")
+        .arg(&unit_name)
+        .arg("-p")
+        .arg("MemoryMax")
+        .arg("-p")
+        .arg("CPUQuota")
+        .arg("-p")
+        .arg("CPUQuotaPerSecUSec")
+        .output()?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut cpu_quota = "Not set".to_string();
+    let mut mem_max = "Not set".to_string();
+
+    for line in stdout_str.lines() {
+        if let Some(value) = line.strip_prefix("CPUQuotaPerSecUSec=") {
+            if let Some(sec_str) = value.strip_suffix('s') {
+                if let Ok(seconds) = sec_str.parse::<f64>() {
+                    cpu_quota = format!("{:.1}% ({:.2} CPUs)", seconds * 100.0, seconds);
+                }
+            }
+        } else if let Some(value) = line.strip_prefix("MemoryMax=") {
+            if value != "infinity" {
+                if let Ok(bytes) = value.parse::<u64>() {
+                    let gb = bytes as f64 / 1_000_000_000.0;
+                    mem_max = format!("{:.2} GB", gb);
+                }
+            }
+        }
+    }
+
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║     SERVICE RESOURCE ALLOCATION       ║"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════╝".bright_cyan()
+    );
+    println!();
+    println!(
+        "{} {}",
+        "Service:".bright_white().bold(),
+        service_name.bright_yellow()
+    );
+    println!();
+    println!(
+        "{} {}",
+        "CPU Quota:".bright_white().bold(),
+        cpu_quota.green()
+    );
+    println!(
+        "{} {}",
+        "Memory Max:".bright_white().bold(),
+        mem_max.green()
+    );
+
+    Ok(())
+}
+
+/// List all service allocations
+pub fn list_service_allocations() -> io::Result<()> {
+    let service_allocs = crate::system::get_service_allocations()?;
+
+    if service_allocs.is_empty() {
+        println!("{}", "No services have resource limits configured.".bright_white());
+        return Ok(());
+    }
+
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║      SERVICE RESOURCE ALLOCATIONS     ║"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════╝".bright_cyan()
+    );
+    println!();
+
+    for s in &service_allocs {
+        let cpu_cores = s.cpu_quota / 100.0;
+        let mem_gb = s.mem_bytes as f64 / 1_000_000_000.0;
+        println!(
+            "{} {}",
+            "Service:".bright_white().bold(),
+            s.name.bright_yellow()
+        );
+        println!(
+            "  {} CPUQuota={:.1}% ({:.2} CPUs)",
+            "→".bright_white(),
+            s.cpu_quota,
+            cpu_cores
+        );
+        println!(
+            "  {} MemoryMax={:.2} GB",
+            "→".bright_white(),
+            mem_gb
+        );
+        println!();
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

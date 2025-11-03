@@ -56,6 +56,12 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum AdminSubcommands {
+    /// Manage system service resource limits
+    Service {
+        #[command(subcommand)]
+        sub: ServiceSubcommands,
+    },
+
     /// Setup global baseline for all users (default: 1 CPU, 2G RAM, 2 CPU reserve, 4G RAM reserve)
     Setup {
         /// Default number of CPUs per user (1-1000)
@@ -97,4 +103,37 @@ pub enum AdminSubcommands {
         #[arg(long)]
         force: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ServiceSubcommands {
+    /// Request resources for a system service (e.g., docker, containerd)
+    Request {
+        /// Service name (docker, containerd, podman, lxc, libvirtd, qemu-kvm)
+        #[arg(long)]
+        name: String,
+        /// Number of CPUs to allocate (1-1000)
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
+        cpu: u32,
+        /// Amount of memory in GB to allocate (1-10000)
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
+        mem: u32,
+    },
+
+    /// Release resources from a system service
+    Release {
+        /// Service name
+        #[arg(long)]
+        name: String,
+    },
+
+    /// Show resource allocation for a specific service
+    Info {
+        /// Service name
+        #[arg(long)]
+        name: String,
+    },
+
+    /// List all service allocations
+    List,
 }

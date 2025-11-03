@@ -35,6 +35,12 @@ pub struct UserAlloc {
     pub mem_bytes: u64,
 }
 
+pub struct ServiceAlloc {
+    pub name: String,
+    pub cpu_quota: f64,
+    pub mem_bytes: u64,
+}
+
 /// Read the system CPU reserve from policy.toml
 /// Returns 0 if the file doesn't exist or can't be read
 pub fn get_system_cpu_reserve() -> u32 {
@@ -192,10 +198,101 @@ fn parse_uid_from_slice(slice_name: &str) -> Option<String> {
     Some(uid_str.to_string())
 }
 
+/// Get service allocations by querying systemd directly
+pub fn get_service_allocations() -> io::Result<Vec<ServiceAlloc>> {
+    // List of services to check for resource limits
+    let services_to_check = vec![
+        "docker",
+        "containerd",
+        "podman",
+        "lxc",
+        "libvirtd",
+        "qemu-kvm",
+    ];
+
+    let mut allocations = vec![];
+
+    for service_name in services_to_check {
+        let unit_name = format!("{}.service", service_name);
+
+        // Check if service exists by trying to show it
+        let info = Command::new("systemctl")
+            .args(["show", &unit_name, "-p", "LoadState"])
+            .output()
+            .map_err(|e| {
+                io::Error::other(format!("Failed to check service {}: {}", unit_name, e))
+            })?;
+
+        let out = String::from_utf8_lossy(&info.stdout);
+        let mut load_state = "";
+        for l in out.lines() {
+            if let Some(value) = l.strip_prefix("LoadState=") {
+                load_state = value.trim();
+            }
+        }
+
+        // Skip if service doesn't exist (LoadState=not-found)
+        if load_state == "not-found" {
+            continue;
+        }
+
+        // Get resource limits
+        let info = Command::new("systemctl")
+            .args([
+                "show",
+                &unit_name,
+                "-p",
+                "MemoryMax",
+                "-p",
+                "CPUQuotaPerSecUSec",
+            ])
+            .output()
+            .map_err(|e| {
+                io::Error::other(format!("Failed to get service info for {}: {}", unit_name, e))
+            })?;
+
+        let out = String::from_utf8_lossy(&info.stdout);
+        let mut mem_bytes = 0u64;
+        let mut cpu_quota = 0.0f64;
+
+        for l in out.lines() {
+            if l.starts_with("MemoryMax=") {
+                if let Some(value_str) = l.strip_prefix("MemoryMax=") {
+                    // MemoryMax can be "infinity" or a number
+                    if value_str != "infinity" {
+                        mem_bytes = value_str.parse::<u64>().unwrap_or(0);
+                    }
+                }
+            } else if l.starts_with("CPUQuotaPerSecUSec=") {
+                if let Some(quota_str) = l.strip_prefix("CPUQuotaPerSecUSec=") {
+                    if let Some(sec_str) = quota_str.strip_suffix('s') {
+                        if let Ok(seconds) = sec_str.parse::<f64>() {
+                            // Convert seconds to percentage (1s = 100%, 2s = 200%, etc)
+                            cpu_quota = seconds * 100.0;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Only add to allocations if service has custom resource limits set
+        if cpu_quota > 0.0 || mem_bytes > 0 {
+            allocations.push(ServiceAlloc {
+                name: service_name.to_string(),
+                cpu_quota,
+                mem_bytes,
+            });
+        }
+    }
+
+    Ok(allocations)
+}
+
 /// Calculate all available resources for the requesting user
 /// Returns (available_cpu, available_mem_gb) taking into account:
 /// - System reserves
 /// - Other users' allocations
+/// - Service allocations
 /// - Requesting user's current allocation (delta-based)
 pub fn calculate_available_resources(
     totals: &SystemTotals,
@@ -209,6 +306,14 @@ pub fn calculate_available_resources(
     // Calculate currently used resources from all users
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
     let used_mem: f64 = allocations
+        .iter()
+        .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
+        .sum();
+
+    // Add service allocations
+    let service_allocs = get_service_allocations().unwrap_or_default();
+    let service_cpu: f64 = service_allocs.iter().map(|a| a.cpu_quota / 100.0).sum();
+    let service_mem: f64 = service_allocs
         .iter()
         .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
         .sum();
@@ -228,9 +333,9 @@ pub fn calculate_available_resources(
         (used_cpu, used_mem)
     };
 
-    // Subtract the system reserves from available resources
-    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
-    let available_mem = totals.total_mem_gb - adjusted_used_mem - mem_reserve;
+    // Subtract user allocations, service allocations, and system reserves from available resources
+    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - service_cpu - cpu_reserve;
+    let available_mem = totals.total_mem_gb - adjusted_used_mem - service_mem - mem_reserve;
 
     // Return as u32, ensuring we don't return negative values
     let available_cpu_u32 = if available_cpu > 0.0 {
@@ -265,6 +370,14 @@ pub fn check_request(
         .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
         .sum();
 
+    // Add service allocations
+    let service_allocs = get_service_allocations().unwrap_or_default();
+    let service_cpu: f64 = service_allocs.iter().map(|a| a.cpu_quota / 100.0).sum();
+    let service_mem: f64 = service_allocs
+        .iter()
+        .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
+        .sum();
+
     // If the requesting user already has an allocation, subtract it from used resources
     // This allows us to check if the NET INCREASE fits, not the entire new request
     let (adjusted_used_cpu, adjusted_used_mem) = if let Some(uid) = requesting_user_uid {
@@ -280,9 +393,9 @@ pub fn check_request(
         (used_cpu, used_mem)
     };
 
-    // Subtract the system reserves from available resources
-    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
-    let available_mem = totals.total_mem_gb - adjusted_used_mem - mem_reserve;
+    // Subtract user allocations, service allocations, and system reserves from available resources
+    let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - service_cpu - cpu_reserve;
+    let available_mem = totals.total_mem_gb - adjusted_used_mem - service_mem - mem_reserve;
     let req_mem = parse_mem_gb(req_mem_gb);
 
     req_cpu as f64 <= available_cpu && req_mem <= available_mem
@@ -313,9 +426,18 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
         .iter()
         .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
         .sum();
-    // Subtract the system reserves from available resources
-    let available_cpu = totals.total_cpu as f64 - used_cpu - cpu_reserve;
-    let available_mem = totals.total_mem_gb - used_mem - mem_reserve;
+
+    // Get service allocations
+    let service_allocs = get_service_allocations().unwrap_or_default();
+    let service_cpu: f64 = service_allocs.iter().map(|a| a.cpu_quota / 100.0).sum();
+    let service_mem: f64 = service_allocs
+        .iter()
+        .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
+        .sum();
+
+    // Subtract user allocations, service allocations, and system reserves from available resources
+    let available_cpu = totals.total_cpu as f64 - used_cpu - service_cpu - cpu_reserve;
+    let available_mem = totals.total_mem_gb - used_mem - service_mem - mem_reserve;
 
     // System overview table
     println!(
@@ -383,6 +505,37 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
 
     println!("{}", overview_table);
     println!();
+
+    // Service allocations table
+    if !service_allocs.is_empty() {
+        println!("{}", "Service Allocations:".bright_cyan().bold());
+        println!();
+
+        let mut service_table = Table::new();
+        service_table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .set_header(vec![
+                Cell::new("Service").fg(Color::Cyan),
+                Cell::new("CPU Quota").fg(Color::Cyan),
+                Cell::new("CPUs").fg(Color::Cyan),
+                Cell::new("RAM (GB)").fg(Color::Cyan),
+            ]);
+
+        for s in &service_allocs {
+            let cpu_cores = s.cpu_quota / 100.0;
+            let mem_gb = s.mem_bytes as f64 / 1_000_000_000.0;
+            service_table.add_row(vec![
+                Cell::new(&s.name).fg(Color::White),
+                Cell::new(format!("{:.1}%", s.cpu_quota)).fg(Color::Magenta),
+                Cell::new(format!("{:.2}", cpu_cores)).fg(Color::Magenta),
+                Cell::new(format!("{:.2}", mem_gb)).fg(Color::Magenta),
+            ]);
+        }
+
+        println!("{}", service_table);
+        println!();
+    }
 
     // Per-user allocations table
     if !allocations.is_empty() {

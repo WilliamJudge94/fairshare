@@ -3,7 +3,7 @@ mod system;
 mod systemd;
 
 use clap::Parser;
-use cli::{AdminSubcommands, Cli, Commands};
+use cli::{AdminSubcommands, Cli, Commands, ServiceSubcommands};
 use colored::*;
 use system::*;
 use systemd::*;
@@ -209,6 +209,42 @@ fn main() {
         }
 
         Commands::Admin { sub } => match sub {
+            AdminSubcommands::Service { sub } => match sub {
+                ServiceSubcommands::Request { name, cpu, mem } => {
+                    if let Err(e) = set_service_limits(name, *cpu, *mem) {
+                        eprintln!(
+                            "{} {}: {}",
+                            "✗".red().bold(),
+                            "Failed to set service limits".red(),
+                            e
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                ServiceSubcommands::Release { name } => {
+                    if let Err(e) = release_service_limits(name) {
+                        eprintln!(
+                            "{} {}: {}",
+                            "✗".red().bold(),
+                            "Failed to release service limits".red(),
+                            e
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                ServiceSubcommands::Info { name } => {
+                    if let Err(e) = show_service_info(name) {
+                        eprintln!("{} {}", "✗".red().bold(), e.to_string().red());
+                        std::process::exit(1);
+                    }
+                }
+                ServiceSubcommands::List => {
+                    if let Err(e) = list_service_allocations() {
+                        eprintln!("{} {}", "✗".red().bold(), e.to_string().red());
+                        std::process::exit(1);
+                    }
+                }
+            },
             AdminSubcommands::Setup {
                 cpu,
                 mem,
