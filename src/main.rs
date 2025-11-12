@@ -279,7 +279,12 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            AdminSubcommands::SetUser { user, cpu, mem, force } => {
+            AdminSubcommands::SetUser {
+                user,
+                cpu,
+                mem,
+                force,
+            } => {
                 // Convert username or UID string to UID
                 let uid = match system::get_uid_from_user_string(user) {
                     Ok(uid) => uid,

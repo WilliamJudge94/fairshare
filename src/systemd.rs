@@ -1046,6 +1046,8 @@ pub fn admin_set_user_limits(uid: u32, cpu: u32, mem: u32) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
+
     #[test]
     fn test_admin_setup_creates_valid_config_content() {
         // This test validates the configuration format without actually
@@ -1576,6 +1578,7 @@ mod tests {
 
     // UID Validation Tests
     #[test]
+    #[serial]
     fn test_get_calling_user_uid_rejects_root() {
         // Test that UID 0 (root) is rejected with PermissionDenied
         use std::env;
@@ -1612,6 +1615,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_calling_user_uid_rejects_system_users() {
         // Test that UIDs < 1000 are rejected as system users
         use std::env;
@@ -1654,6 +1658,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_calling_user_uid_accepts_valid_users() {
         // Test that UIDs >= 1000 for existing users work
         use std::env;
@@ -1685,6 +1690,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_calling_user_uid_rejects_nonexistent_users() {
         // Test that non-existent UIDs are rejected
         use std::env;
@@ -1736,6 +1742,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_calling_user_uid_rejects_invalid_format() {
         // Test that invalid UID formats are rejected
         use std::env;
@@ -1777,6 +1784,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_calling_user_uid_boundary_values() {
         // Test boundary values around the 1000 threshold
         use std::env;
@@ -1816,6 +1824,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_calling_user_uid_without_pkexec_env() {
         // Test that when PKEXEC_UID is not set, it falls back to current user
         use std::env;
