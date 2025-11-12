@@ -2,22 +2,44 @@
 
 This document explains how to create a GitHub release with the pre-built binaries.
 
-## Version 0.3.1 Changes
+## Version 0.6.0 Changes
 
-**Installation Improvements:**
-- The installation script now automatically detects if PolicyKit is missing
-- Automatically installs PolicyKit on apt/dnf/pacman-based systems
-- For Debian/Ubuntu systems, runs `apt update` before installing PolicyKit
-- Shows PolicyKit installation commands in the "Commands that require sudo" section
-- Users no longer need to manually install PolicyKit before running the installer
+**New Admin Command: Force-Set User Resources**
 
-**Documentation Updates:**
-- Updated README.md with PolicyKit auto-installation information
-- Updated CLAUDE.md with installation and troubleshooting guidance
-- Added new troubleshooting section for PolicyKit issues
+Administrators can now directly set CPU and memory allocations for any user on the system, even if that user is not currently logged in:
 
-**What This Fixes:**
-Previously, users had to manually install PolicyKit before fairshare would work. Now the installer handles this automatically, providing a smoother installation experience.
+```bash
+# Set resources by username
+sudo fairshare admin set-user --user alice --cpu 4 --mem 8
+
+# Set resources by UID
+sudo fairshare admin set-user --user 1000 --cpu 2 --mem 4
+
+# Force set without confirmation prompt (for scripts)
+sudo fairshare admin set-user --user bob --cpu 10 --mem 20 --force
+```
+
+**Features:**
+- Accepts either username or UID for the `--user` parameter
+- Validates that the user exists on the system
+- Rejects modifications to root (UID 0) and system users (UID < 1000) for safety
+- Checks resource availability using delta-based checking (same as regular user requests)
+- Displays a warning prompt if the allocation would exceed available resources
+- Optional `--force` flag to skip warning prompts for automated scripts
+- Works even when the target user is signed out (modifies systemd user slice directly)
+
+**Implementation Details:**
+- Added `get_uid_from_user_string()` helper function in `system.rs` to convert username/UID to UID
+- Added `admin_set_user_limits()` function in `systemd.rs` with full validation and safety checks
+- Added resource availability checking with interactive warning prompts
+- Comprehensive test coverage (13 new tests added)
+- Updated documentation in README.md and CLAUDE.md
+
+**Use Cases:**
+- System administrators managing multi-user shared systems
+- Automated resource allocation scripts
+- Pre-allocating resources for specific users before they log in
+- Adjusting user allocations without requiring the user to be logged in
 
 ## Step 1: Build the Binaries
 
@@ -86,7 +108,7 @@ Test that the binaries work correctly:
 ```bash
 # Check version
 ./releases/fairshare-x86_64 --version
-# Output: fairshare 0.3.1
+# Output: fairshare 0.6.0
 
 # Check architecture
 readelf -h releases/fairshare-x86_64 | grep Machine
@@ -100,8 +122,8 @@ readelf -h releases/fairshare-aarch64 | grep Machine
 
 1. Go to https://github.com/WilliamJudge94/fairshare/releases
 2. Click "Draft a new release"
-3. Choose a tag version: `v0.3.1`
-4. Set the release title: "fairshare v0.3.1 - Improved Installation"
+3. Choose a tag version: `v0.6.0`
+4. Set the release title: "fairshare v0.6.0 - Admin Force-Set User Resources"
 5. Write release notes (see example below)
 6. Upload the following files as release assets:
    - `releases/fairshare-x86_64`
@@ -112,51 +134,56 @@ readelf -h releases/fairshare-aarch64 | grep Machine
 ### Example Release Notes
 
 ```markdown
-# fairshare v0.3.1 - Improved Installation
+# fairshare v0.6.0 - Admin Force-Set User Resources
 
 ## What's New
 
-### Automatic PolicyKit Installation
+### New Admin Command: Force-Set User Resources
 
-The installation script now automatically handles PolicyKit installation, making setup even easier:
+Administrators can now directly set CPU and memory allocations for any user on the system, even if that user is not currently logged in:
 
 ```bash
-# Just run the installer - it handles everything
-curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
+# Set resources by username
+sudo fairshare admin set-user --user alice --cpu 4 --mem 8
+
+# Set resources by UID
+sudo fairshare admin set-user --user 1000 --cpu 2 --mem 4
+
+# Force set without confirmation prompt (for scripts)
+sudo fairshare admin set-user --user bob --cpu 10 --mem 20 --force
 ```
 
-**What the installer does:**
-- Detects if PolicyKit (pkexec) is installed
-- If missing, automatically installs it using your package manager:
-  - Debian/Ubuntu: Runs `apt update` then `apt install policykit-1`
-  - Fedora/RHEL: Runs `dnf install polkit`
-  - Arch Linux: Runs `pacman -S polkit`
-- Shows all commands that will be run before executing them
-- Continues with fairshare installation
+**Key Features:**
+- **Flexible User Identification**: Accepts either username (e.g., "alice") or UID (e.g., "1000")
+- **Resource Availability Checking**: Warns if allocation exceeds available resources and prompts for confirmation
+- **Safety First**: Cannot modify root (UID 0) or system users (UID < 1000)
+- **Offline Users**: Works even when the target user is not logged in
+- **Automation-Friendly**: Optional `--force` flag skips confirmation prompts for scripts
 
-**Before (v0.3.0):**
-```bash
-# Users had to manually install PolicyKit first
-sudo apt install policykit-1
-curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
-```
+**How It Works:**
+When an admin sets resources that would exceed available capacity:
+1. Displays warning: "WARNING: This allocation exceeds available system resources!"
+2. Warns about potential resource contention or system instability
+3. Prompts for confirmation: "Proceed anyway? [y/N]"
+4. Only proceeds if admin confirms with 'y' or 'yes'
+5. With `--force` flag, skips prompt but still displays a warning
 
-**Now (v0.3.1):**
-```bash
-# Installer handles everything automatically
-curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
-```
+**Use Cases:**
+- System administrators managing multi-user shared systems
+- Automated resource allocation scripts
+- Pre-allocating resources for specific users before they log in
+- Adjusting user allocations without requiring the user to be logged in
 
-### Documentation Improvements
+### Technical Details
 
-- Added PolicyKit auto-installation details to README.md
-- Updated CLAUDE.md with comprehensive installation guidance
-- Added troubleshooting section for PolicyKit issues
-- Clarified manual installation steps for users building from source
+- Added comprehensive input validation and safety checks
+- Implements delta-based resource checking (same as regular user requests)
+- Full test coverage with 13 new tests
+- Updated documentation across README.md and CLAUDE.md
 
 ## Bug Fixes
 
-- None (this is a patch release focused on installation improvements)
+- None (this is a feature release)
 
 ## Installation
 
@@ -173,7 +200,7 @@ bash install.sh
 
 ### Verify Installation
 ```bash
-fairshare --version  # Should show: fairshare 0.3.1
+fairshare --version  # Should show: fairshare 0.6.0
 ```
 
 ## Checksums
@@ -185,21 +212,29 @@ sha256sum -c SHA256SUMS
 
 ## Full Changelog
 
-### Changed
-- Installation script now automatically detects and installs PolicyKit if missing
-- For apt-based systems, runs `apt update` before installing PolicyKit
-- Updated documentation to reflect automatic PolicyKit installation
-
 ### Added
-- New troubleshooting section for PolicyKit issues
-- Clear guidance for manual PolicyKit installation
+- **New admin command**: `fairshare admin set-user` to force-set resources for any user
+- Flexible user identification (accepts username or UID)
+- Resource availability checking with warning prompts for over-allocation
+- Optional `--force` flag to skip confirmation prompts
+- Comprehensive validation and safety checks (rejects root and system users)
+- 13 new unit tests for the new functionality
 
-## Upgrading from v0.3.0
+### Changed
+- Updated README.md with new admin command documentation
+- Updated CLAUDE.md with implementation details and usage examples
+
+## Upgrading from v0.5.0
 
 Simply run the new installer or build from source. No configuration changes needed:
 
 ```bash
 curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
+```
+
+**New Command Available After Upgrade:**
+```bash
+sudo fairshare admin set-user --user <username|UID> --cpu <N> --mem <N>
 ```
 ```
 
@@ -208,24 +243,27 @@ curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
 After creating the release, test that users can install it:
 
 ```bash
-# Test the install script (on a system without PolicyKit if possible)
+# Test the install script
 curl -sSL https://raw.github.com/WilliamJudge94/fairshare/main/install.sh | bash
 
 # Verify version
-fairshare --version  # Should show: fairshare 0.3.1
+fairshare --version  # Should show: fairshare 0.6.0
 
 # Test basic functionality
 fairshare status
 fairshare info
+
+# Test new admin command (requires sudo and a valid username)
+sudo fairshare admin set-user --user testuser --cpu 2 --mem 4
 ```
 
 ## Step 5: Update Version References
 
 After the release, update version numbers in the codebase for the next release:
 
-1. Update `Cargo.toml` version to `0.3.2` (or `0.4.0` depending on next changes)
+1. Update `Cargo.toml` version to `0.7.0` (or appropriate next version)
 2. Update any hardcoded version strings in documentation
-3. Commit with message: "chore: bump version to 0.3.2-dev"
+3. Commit with message: "chore: bump version to 0.7.0-dev"
 
 ## Automated Releases (Future)
 

@@ -81,6 +81,7 @@ The wrapper script auto-detects the binary location, supporting both:
 - **Show user info**: `fairshare info`
 - **Release resources**: `fairshare release`
 - **Admin setup** (requires root): `sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4`
+- **Admin set user resources** (requires root): `sudo fairshare admin set-user --user username --cpu 4 --mem 8` (set resources for a specific user, even if signed out)
 
 **Note**: Regular user commands automatically use pkexec via the wrapper script at `/usr/local/bin/fairshare`. The real binary is at `/usr/local/libexec/fairshare-bin`. Admin commands require `sudo`.
 
@@ -124,6 +125,7 @@ The codebase is organized into four main modules:
 - `get_user_allocations_from_systemd()` - Reads user slice properties via `systemctl list-units` and `systemctl show`
 - `check_request()` - Validates if requested resources are available using **delta-based checking** (considers existing user allocation and system reserves)
 - `print_status()` - Displays formatted system and per-user resource overview (includes reserve row if configured)
+- `get_uid_from_user_string()` - Converts a username or UID string to a UID, validates user exists on the system
 
 #### Resource Management (`systemd.rs`)
 - `get_calling_user_uid()` - Retrieves the UID of the user who invoked pkexec (reads `PKEXEC_UID` environment variable)
@@ -132,6 +134,7 @@ The codebase is organized into four main modules:
 - `show_user_info()` - Displays current user's resource allocation
 - `admin_setup_defaults()` - Creates systemd config at `/etc/systemd/system/user-.slice.d/00-defaults.conf`, stores CPU/memory reserves in `/etc/fairshare/policy.toml`, and installs PolicyKit policies
 - `admin_uninstall_defaults()` - Removes admin configuration files, PolicyKit policies, and reloads systemd
+- `admin_set_user_limits()` - Admin function to force set resource limits for a specific user by UID (works even if user is signed out, includes resource availability checking with warning prompt)
 
 ### Resource Units
 
@@ -223,6 +226,7 @@ The tool uses **pkexec** (PolicyKit) for privilege escalation, allowing regular 
 - Configure system reserves in `/etc/fairshare/policy.toml`
 - Install PolicyKit policies in `/usr/share/polkit-1/actions/` and `/etc/polkit-1/rules.d/`
 - Can affect all user sessions
+- Can force-set resources for specific users via `sudo fairshare admin set-user --user <username|UID> --cpu <N> --mem <N>`
 
 ### Wrapper Script Pattern
 
@@ -253,6 +257,51 @@ This allows users to type `fairshare status` instead of `pkexec fairshare status
 This allows users to adjust their allocations up or down without being blocked by their own existing allocation.
 
 Critical parsing logic in `system.rs` handles `CPUQuotaPerSecUSec` conversion to percentage (1s = 100%, 4s = 400%, etc.).
+
+### Admin Force-Set User Resources
+
+The `admin set-user` command allows administrators to directly set resource allocations for any user on the system, even if that user is not currently logged in:
+
+**Command Format**:
+```bash
+sudo fairshare admin set-user --user <username|UID> --cpu <N> --mem <N> [--force]
+```
+
+**Features**:
+- Accepts either a username (e.g., "john") or a UID (e.g., "1000") via the `--user` parameter
+- Validates that the user exists on the system before applying limits
+- Rejects root (UID 0) and system users (UID < 1000) for safety
+- Checks resource availability using delta-based checking (same as regular user requests)
+- Displays a warning prompt if the allocation would exceed available resources
+- Optional `--force` flag skips the warning prompt for automated scripts
+- Works even when the target user is not logged in (modifies systemd user slice directly)
+
+**Resource Availability Warning**:
+When an admin attempts to allocate more resources than are currently available (considering existing allocations and system reserves), the command:
+1. Displays a warning: "WARNING: This allocation exceeds available system resources!"
+2. Warns about potential resource contention or system instability
+3. Prompts for confirmation: "Proceed anyway? [y/N]"
+4. Only proceeds if the admin explicitly confirms with 'y' or 'yes'
+5. With `--force` flag, skips the prompt but still displays a warning message
+
+**Example Usage**:
+```bash
+# Set resources for user "alice" by username
+sudo fairshare admin set-user --user alice --cpu 4 --mem 8
+
+# Set resources for UID 1000
+sudo fairshare admin set-user --user 1000 --cpu 2 --mem 4
+
+# Force set without confirmation prompt
+sudo fairshare admin set-user --user bob --cpu 10 --mem 20 --force
+```
+
+**Validation and Safety**:
+- Input validation enforces CPU range (1-1000) and memory range (1-10000 GB)
+- Overflow checking prevents arithmetic errors during conversion
+- Cannot modify root user slice (UID 0)
+- Cannot modify system user slices (UID < 1000)
+- Verifies user existence before attempting modification
 
 ### Systemd Interaction
 

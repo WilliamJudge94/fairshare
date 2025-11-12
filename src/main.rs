@@ -279,6 +279,98 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            AdminSubcommands::SetUser {
+                user,
+                cpu,
+                mem,
+                force,
+            } => {
+                // Convert username or UID string to UID
+                let uid = match system::get_uid_from_user_string(user) {
+                    Ok(uid) => uid,
+                    Err(e) => {
+                        eprintln!("{} {}: {}", "✗".red().bold(), "Invalid user".red(), e);
+                        std::process::exit(1);
+                    }
+                };
+
+                // Get username for display
+                let username = system::get_username_from_uid(&uid.to_string())
+                    .unwrap_or_else(|| format!("UID {}", uid));
+
+                // Check resource availability and warn if exceeding
+                let totals = get_system_totals();
+                let allocations = match get_user_allocations() {
+                    Ok(allocs) => allocs,
+                    Err(e) => {
+                        eprintln!("{} Failed to get user allocations: {}", "✗".red().bold(), e);
+                        std::process::exit(1);
+                    }
+                };
+
+                // Check if the request exceeds available resources
+                if !check_request(
+                    &totals,
+                    &allocations,
+                    *cpu,
+                    &mem.to_string(),
+                    Some(&uid.to_string()),
+                ) {
+                    if !force {
+                        eprintln!(
+                            "{} {}",
+                            "⚠".bright_yellow().bold(),
+                            "WARNING: This allocation exceeds available system resources!"
+                                .bright_yellow()
+                        );
+                        eprintln!(
+                            "{}",
+                            "This may cause resource contention or system instability."
+                                .bright_yellow()
+                        );
+                        eprint!(
+                            "\n{} {}",
+                            "Proceed anyway?".bright_white().bold(),
+                            "[y/N]: ".bright_white()
+                        );
+                        std::io::Write::flush(&mut std::io::stderr()).ok();
+
+                        let mut input = String::new();
+                        std::io::stdin().read_line(&mut input).ok();
+                        if !input.trim().eq_ignore_ascii_case("y")
+                            && !input.trim().eq_ignore_ascii_case("yes")
+                        {
+                            println!("{} {}", "✗".red().bold(), "Operation cancelled.".red());
+                            return;
+                        }
+                    } else {
+                        eprintln!(
+                            "{} {}",
+                            "⚠".bright_yellow().bold(),
+                            "WARNING: Allocating resources beyond available capacity (forced)."
+                                .bright_yellow()
+                        );
+                    }
+                }
+
+                if let Err(e) = systemd::admin_set_user_limits(uid, *cpu, *mem) {
+                    eprintln!(
+                        "{} {}: {}",
+                        "✗".red().bold(),
+                        "Failed to set limits".red(),
+                        e
+                    );
+                    std::process::exit(1);
+                }
+
+                println!(
+                    "{} Allocated {} and {} for user {}.",
+                    "✓".green().bold(),
+                    format!("{} CPU(s)", cpu).bright_yellow().bold(),
+                    format!("{}G RAM", mem).bright_yellow().bold(),
+                    username.bright_cyan()
+                );
+            }
         },
     }
 }
