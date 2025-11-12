@@ -185,6 +185,30 @@ Example on an 8 CPU, 16GB RAM system:
 
 ![Admin Setup](static/root-admin-setup.png)
 
+#### Force-Set Resources for a Specific User
+Administrators can directly set resource allocations for any user on the system, even if that user is not currently logged in.
+
+```bash
+# Set resources by username
+sudo fairshare admin set-user --user alice --cpu 4 --mem 8
+
+# Set resources by UID
+sudo fairshare admin set-user --user 1000 --cpu 2 --mem 4
+
+# Force set without confirmation prompt (for scripts)
+sudo fairshare admin set-user --user bob --cpu 10 --mem 20 --force
+```
+
+**Key Features:**
+- Works with username (e.g., "alice") or UID (e.g., "1000")
+- Checks resource availability and warns if allocation exceeds system capacity
+- Prompts for confirmation when over-allocating (unless `--force` is used)
+- Works even when the target user is signed out
+- Cannot modify root (UID 0) or system users (UID < 1000)
+
+**Resource Availability Warning:**
+If the allocation would exceed available resources, the command displays a warning about potential resource contention and prompts for confirmation. Use `--force` to skip the prompt for automated scripts.
+
 #### Uninstall fairshare
 Remove fairshare from your system and revert to standard Linux resource management.
 ```bash
