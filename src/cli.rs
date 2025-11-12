@@ -97,4 +97,20 @@ pub enum AdminSubcommands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Force set resources for a specific user (even if signed out)
+    SetUser {
+        /// Username or UID of the target user
+        #[arg(long)]
+        user: String,
+        /// Number of CPUs to allocate (1-1000)
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
+        cpu: u32,
+        /// Amount of memory in GB to allocate (1-10000)
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
+        mem: u32,
+        /// Skip resource availability warning prompt
+        #[arg(long)]
+        force: bool,
+    },
 }

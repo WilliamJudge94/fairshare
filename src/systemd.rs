@@ -961,6 +961,89 @@ pub fn admin_reset(
     Ok(())
 }
 
+/// Admin function to force set resource limits for a specific user (by UID).
+/// This works even if the user is not currently logged in.
+/// Requires root privileges and should only be called from admin commands.
+pub fn admin_set_user_limits(uid: u32, cpu: u32, mem: u32) -> io::Result<()> {
+    // Validate inputs before operations
+    if cpu > MAX_CPU {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("CPU value {} exceeds maximum limit of {}", cpu, MAX_CPU),
+        ));
+    }
+    if mem > MAX_MEM {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Memory value {} exceeds maximum limit of {}", mem, MAX_MEM),
+        ));
+    }
+
+    // Validate UID is not root
+    if uid == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Cannot modify root user slice",
+        ));
+    }
+
+    // Validate UID is not a system user (standard threshold is 1000)
+    if uid < 1000 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Cannot modify system user slice",
+        ));
+    }
+
+    // Verify user exists
+    if users::get_user_by_uid(uid).is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("User with UID {} does not exist", uid),
+        ));
+    }
+
+    // Convert GB to bytes with overflow checking
+    let mem_bytes = (mem as u64).checked_mul(1_000_000_000).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Memory value {} GB is too large and would cause overflow when converting to bytes",
+                mem
+            ),
+        )
+    })?;
+
+    // Calculate CPU quota with overflow checking
+    let cpu_quota = cpu.checked_mul(100).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "CPU value {} is too large and would cause overflow when calculating quota",
+                cpu
+            ),
+        )
+    })?;
+
+    // Set limits on the user slice at system level
+    let status = Command::new("systemctl")
+        .arg("set-property")
+        .arg(format!("user-{}.slice", uid))
+        .arg(format!("CPUQuota={}%", cpu_quota))
+        .arg(format!("MemoryMax={}", mem_bytes))
+        .status()?;
+
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "Failed to set user limits for UID {} (exit code: {:?})",
+            uid,
+            status.code()
+        )));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1754,6 +1837,207 @@ mod tests {
         // Restore original PKEXEC_UID if it existed
         if let Some(val) = original {
             env::set_var("PKEXEC_UID", val);
+        }
+    }
+
+    // Tests for admin_set_user_limits function
+    #[test]
+    fn test_admin_set_user_limits_input_validation_cpu_exceeds_max() {
+        // Test that admin_set_user_limits rejects CPU values exceeding MAX_CPU
+        use crate::cli::MAX_CPU;
+
+        // Use current user's UID for testing (should exist)
+        let uid = users::get_current_uid();
+        let result = super::admin_set_user_limits(uid, MAX_CPU + 1, 2);
+        assert!(result.is_err(), "Should reject CPU exceeding MAX_CPU");
+
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            assert!(
+                error_msg.contains("exceeds maximum limit"),
+                "Error should mention exceeding limit: {}",
+                error_msg
+            );
+            assert!(
+                error_msg.contains(&(MAX_CPU + 1).to_string()),
+                "Error should contain the invalid CPU value: {}",
+                error_msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_admin_set_user_limits_input_validation_mem_exceeds_max() {
+        // Test that admin_set_user_limits rejects memory values exceeding MAX_MEM
+        use crate::cli::MAX_MEM;
+
+        // Use current user's UID for testing (should exist)
+        let uid = users::get_current_uid();
+        let result = super::admin_set_user_limits(uid, 2, MAX_MEM + 1);
+        assert!(result.is_err(), "Should reject memory exceeding MAX_MEM");
+
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            assert!(
+                error_msg.contains("exceeds maximum limit"),
+                "Error should mention exceeding limit: {}",
+                error_msg
+            );
+            assert!(
+                error_msg.contains(&(MAX_MEM + 1).to_string()),
+                "Error should contain the invalid memory value: {}",
+                error_msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_admin_set_user_limits_rejects_root() {
+        // Test that UID 0 (root) is rejected with PermissionDenied
+        let result = super::admin_set_user_limits(0, 2, 4);
+        assert!(result.is_err(), "Should reject root UID (0)");
+
+        if let Err(e) = result {
+            assert_eq!(
+                e.kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "Should return PermissionDenied error kind"
+            );
+            let error_msg = format!("{}", e);
+            assert!(
+                error_msg.contains("Cannot modify root user slice"),
+                "Error should mention root user: {}",
+                error_msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_admin_set_user_limits_rejects_system_users() {
+        // Test that UIDs < 1000 are rejected as system users
+        let system_uids = vec![1, 10, 100, 500, 999];
+
+        for uid in system_uids {
+            let result = super::admin_set_user_limits(uid, 2, 4);
+            assert!(result.is_err(), "Should reject system UID {}", uid);
+
+            if let Err(e) = result {
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::PermissionDenied,
+                    "Should return PermissionDenied for UID {}",
+                    uid
+                );
+                let error_msg = format!("{}", e);
+                assert!(
+                    error_msg.contains("Cannot modify system user slice"),
+                    "Error should mention system user for UID {}: {}",
+                    uid,
+                    error_msg
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_admin_set_user_limits_rejects_nonexistent_users() {
+        // Test that non-existent UIDs are rejected
+        let nonexistent_uid = 999999u32;
+
+        // Verify this UID doesn't actually exist on the system
+        if users::get_user_by_uid(nonexistent_uid).is_none() {
+            let result = super::admin_set_user_limits(nonexistent_uid, 2, 4);
+            assert!(
+                result.is_err(),
+                "Should reject non-existent UID {}",
+                nonexistent_uid
+            );
+
+            if let Err(e) = result {
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "Should return NotFound error kind"
+                );
+                let error_msg = format!("{}", e);
+                assert!(
+                    error_msg.contains("does not exist"),
+                    "Error should mention user doesn't exist: {}",
+                    error_msg
+                );
+                assert!(
+                    error_msg.contains(&nonexistent_uid.to_string()),
+                    "Error should include the UID: {}",
+                    error_msg
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_admin_set_user_limits_boundary_values() {
+        // Test boundary values around the 1000 threshold
+        // Test UID 999 (should fail - system user)
+        let result = super::admin_set_user_limits(999, 2, 4);
+        assert!(result.is_err(), "Should reject UID 999 (system user)");
+        if let Err(e) = result {
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+        }
+
+        // Test UID 1000 (should pass validation checks, may fail on systemctl)
+        let result = super::admin_set_user_limits(1000, 2, 4);
+        // Result depends on whether UID 1000 exists on the system
+        if result.is_err() {
+            if let Err(e) = result {
+                // Should either pass or fail with NotFound (not PermissionDenied)
+                assert_ne!(
+                    e.kind(),
+                    std::io::ErrorKind::PermissionDenied,
+                    "UID 1000 should pass validation checks (not be rejected as system user)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_admin_set_user_limits_accepts_valid_users() {
+        // Test that UIDs >= 1000 for existing users pass validation
+        let current_uid = users::get_current_uid();
+
+        // Only test if current user has UID >= 1000
+        if current_uid >= 1000 {
+            let result = super::admin_set_user_limits(current_uid, 2, 4);
+            // Should either succeed or fail with systemctl-related error (not validation error)
+            if let Err(e) = result {
+                let error_msg = format!("{}", e);
+                // Validation errors should not occur for valid UID
+                assert!(
+                    !error_msg.contains("Cannot modify") && !error_msg.contains("exceeds maximum"),
+                    "Should not fail validation for valid UID {}: {}",
+                    current_uid,
+                    error_msg
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_admin_set_user_limits_overflow_detection() {
+        // Test overflow detection in admin_set_user_limits
+        use crate::cli::{MAX_CPU, MAX_MEM};
+
+        let current_uid = users::get_current_uid();
+
+        // Test max valid values don't cause overflow in the function
+        let result = super::admin_set_user_limits(current_uid, MAX_CPU, MAX_MEM);
+        if let Err(e) = result {
+            let error_msg = format!("{}", e);
+            // Should not fail with overflow error for max valid values
+            assert!(
+                !error_msg.contains("overflow"),
+                "MAX values should not cause overflow: {}",
+                error_msg
+            );
         }
     }
 }

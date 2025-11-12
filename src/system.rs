@@ -5,7 +5,7 @@ use std::fs;
 use std::io;
 use std::process::Command;
 use sysinfo::System;
-use users::{get_user_by_uid, uid_t};
+use users::{get_user_by_name, get_user_by_uid, uid_t};
 
 #[derive(Deserialize)]
 struct PolicyConfig {
@@ -303,6 +303,33 @@ fn parse_mem_gb(mem: &str) -> f64 {
 pub fn get_username_from_uid(uid_str: &str) -> Option<String> {
     let uid_num: uid_t = uid_str.parse().ok()?;
     get_user_by_uid(uid_num).map(|user| user.name().to_string_lossy().into_owned())
+}
+
+/// Get UID from username or UID string
+/// Accepts either a username (e.g., "john") or a UID string (e.g., "1000")
+/// Returns the UID if the user exists, or an error if not found
+pub fn get_uid_from_user_string(user: &str) -> io::Result<u32> {
+    // First try to parse as a UID number
+    if let Ok(uid) = user.parse::<u32>() {
+        // Verify the UID exists on the system
+        if get_user_by_uid(uid).is_some() {
+            return Ok(uid);
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("User with UID {} does not exist", uid),
+            ));
+        }
+    }
+
+    // Otherwise, treat it as a username and look it up
+    match get_user_by_name(user) {
+        Some(user_info) => Ok(user_info.uid()),
+        None => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("User '{}' does not exist", user),
+        )),
+    }
 }
 
 pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
@@ -689,5 +716,75 @@ mod tests {
 
         // The actual filtering happens in get_user_allocations(),
         // which skips any entry with UID "0"
+    }
+
+    #[test]
+    fn test_get_uid_from_user_string_with_valid_uid() {
+        // Test with current user's UID (should exist on the system)
+        let current_uid = users::get_current_uid();
+        let result = get_uid_from_user_string(&current_uid.to_string());
+
+        assert!(result.is_ok(), "Should accept valid UID string");
+        if let Ok(uid) = result {
+            assert_eq!(uid, current_uid, "Should return correct UID");
+        }
+    }
+
+    #[test]
+    fn test_get_uid_from_user_string_with_username() {
+        // Test with current user's username
+        let current_uid = users::get_current_uid();
+        if let Some(user) = users::get_user_by_uid(current_uid) {
+            let username = user.name().to_string_lossy().to_string();
+            let result = get_uid_from_user_string(&username);
+
+            assert!(result.is_ok(), "Should accept valid username");
+            if let Ok(uid) = result {
+                assert_eq!(uid, current_uid, "Should return correct UID for username");
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_uid_from_user_string_with_invalid_uid() {
+        // Test with a UID that doesn't exist (very high number)
+        let nonexistent_uid = 999999u32;
+
+        // Only test if this UID truly doesn't exist
+        if users::get_user_by_uid(nonexistent_uid).is_none() {
+            let result = get_uid_from_user_string(&nonexistent_uid.to_string());
+
+            assert!(result.is_err(), "Should reject non-existent UID");
+            if let Err(e) = result {
+                assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+                let error_msg = format!("{}", e);
+                assert!(error_msg.contains(&nonexistent_uid.to_string()));
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_uid_from_user_string_with_invalid_username() {
+        // Test with a username that doesn't exist
+        let nonexistent_user = "thisisanonexistentusernameforsure12345";
+        let result = get_uid_from_user_string(nonexistent_user);
+
+        assert!(result.is_err(), "Should reject non-existent username");
+        if let Err(e) = result {
+            assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+            let error_msg = format!("{}", e);
+            assert!(error_msg.contains(nonexistent_user));
+        }
+    }
+
+    #[test]
+    fn test_get_uid_from_user_string_empty_string() {
+        // Test with empty string
+        let result = get_uid_from_user_string("");
+
+        assert!(result.is_err(), "Should reject empty string");
+        if let Err(e) = result {
+            assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+        }
     }
 }
