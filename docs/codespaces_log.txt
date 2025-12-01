@@ -1,0 +1,311 @@
+root@codespaces-6f27c4:/workspaces/fairshare# ls
+CLAUDE.md  Cargo.lock  Cargo.toml  LICENSE  Makefile  README.md  RELEASE.md  assets  install.sh  releases  src  static  test.py  tests  uninstall.sh
+root@codespaces-6f27c4:/workspaces/fairshare# systemctl status
+● codespaces-6f27c4
+    State: running
+     Jobs: 0 queued
+   Failed: 0 units
+    Since: Mon 2025-12-01 15:05:53 UTC; 20s ago
+   CGroup: /system.slice/docker-7d9fd64c758c0dfa702fdc643e1d70cefab95525a9ab73f8be3a3483ed6a5792.scope
+           ├─user.slice 
+           │ └─user-0.slice 
+           │   └─user@0.service …
+           │     └─init.scope 
+           │       ├─751 /lib/systemd/systemd --user
+           │       └─752 (sd-pam)
+           ├─init.scope 
+           │ ├─  1 /sbin/init
+           │ ├─532 /bin/sh
+           │ ├─726 sh /root/.vscode-remote/bin/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/bin/code-server --log trace --force-disable-user-env --server-data-dir /root/.vscode-remote --accept-server-license-terms --host 127.0.0.1 --port 0 --connection-token-file /root/.vscode-remote/data/Machine/.connection-token-bf9252a2fb45be6893dd8870c0bf37e2e1766d61 --extensions-download-dir /root/.vscode-remote/extensionsCache --install-builtin-extension GitHub.vscode-pull-request-github --install-builtin-extension github.github-vscode-theme --install-builtin-extension github.codespaces --install-extension anthropic.claude-code --install-extension rust-lang.rust-analyzer --do-not-sync --start-server  --enable-remote-auto-shutdown --skip-requirements-check
+           │ ├─735 /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/node /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/out/server-main.js --log trace --force-disable-user-env --server-data-dir /root/.vscode-remote --accept-server-license-terms --host 127.0.0.1 --port 0 --connection-token-file /root/.vscode-remote/data/Machine/.connection-token-bf9252a2fb45be6893dd8870c0bf37e2e1766d61 --extensions-download-dir /root/.vscode-remote/extensionsCache --install-builtin-extension GitHub.vscode-pull-request-github --install-builtin-extension github.github-vscode-theme --install-builtin-extension github.codespaces --install-extension anthropic.claude-code --install-extension rust-lang.rust-analyzer --do-not-sync --start-server  --enable-remote-auto-shutdown --skip-requirements-check
+           │ ├─786 /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/node --dns-result-order=ipv4first /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/out/bootstrap-fork --type=extensionHost --transformURIs --useHostProxy=false
+           │ ├─806 /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/node /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/out/bootstrap-fork --type=fileWatcher
+           │ ├─832 /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/node /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/out/bootstrap-fork --type=ptyHost --logsPath /root/.vscode-remote/data/logs/20251201T150600
+           │ ├─857 /bin/bash --init-file /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh
+           │ ├─963 /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/node /vscode/bin/linux-x64/bf9252a2fb45be6893dd8870c0bf37e2e1766d61/extensions/markdown-language-features/dist/serverWorkerMain --node-ipc --clientProcessId=786
+           │ ├─975 systemctl status
+           │ └─976 (pager)
+           └─system.slice 
+             ├─systemd-journald.service 
+             │ └─32 /lib/systemd/systemd-journald
+             ├─dbus.service 
+             │ └─58 /usr/bin/dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+             ├─system-getty.slice 
+             │ └─getty@tty1.service 
+             │   └─99 /sbin/agetty -o -p -- \u --noclear tty1 linux
+             └─systemd-logind.service 
+               └─60 /lib/systemd/systemd-logind
+root@codespaces-6f27c4:/workspaces/fairshare# systemctl --user
+Failed to connect to bus: $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined (consider using --machine=<user>@.host --user to connect to bus of other user)
+root@codespaces-6f27c4:/workspaces/fairshare# export XDG_RUNTIME_DIR=/run/user/0
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus
+root@codespaces-6f27c4:/workspaces/fairshare# systemctl --user status
+● codespaces-6f27c4
+    State: running
+     Jobs: 0 queued
+   Failed: 0 units
+    Since: Mon 2025-12-01 15:06:00 UTC; 1min 7s ago
+   CGroup: /system.slice/docker-7d9fd64c758c0dfa702fdc643e1d70cefab95525a9ab73f8be3a3483ed6a5792.scope/user.slice/user-0.slice/user@0.service
+           └─init.scope 
+             ├─751 /lib/systemd/systemd --user
+             └─752 (sd-pam)
+root@codespaces-6f27c4:/workspaces/fairshare# cargo run -- request --cpu 1 --mem 1
+   Compiling libc v0.2.177
+   Compiling serde_core v1.0.228
+   Compiling crossbeam-utils v0.8.21
+   Compiling cfg-if v1.0.4
+   Compiling crossbeam-epoch v0.9.18
+   Compiling scopeguard v1.2.0
+   Compiling utf8parse v0.2.2
+   Compiling smallvec v1.15.1
+   Compiling parking_lot_core v0.9.12
+   Compiling serde v1.0.228
+   Compiling anstyle-parse v0.2.7
+   Compiling lock_api v0.4.14
+   Compiling crossbeam-deque v0.8.6
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle v1.0.13
+   Compiling hashbrown v0.16.0
+   Compiling linux-raw-sys v0.11.0
+   Compiling colorchoice v1.0.4
+   Compiling bitflags v2.10.0
+   Compiling anstyle-query v1.1.4
+   Compiling equivalent v1.0.2
+   Compiling indexmap v2.12.0
+   Compiling rustix v1.1.2
+   Compiling anstream v0.6.21
+   Compiling toml_datetime v0.6.11
+   Compiling serde_spanned v0.6.9
+   Compiling rayon-core v1.13.0
+   Compiling parking_lot v0.12.5
+   Compiling toml_write v0.1.2
+   Compiling strsim v0.11.1
+   Compiling either v1.15.0
+   Compiling clap_lex v0.7.6
+   Compiling winnow v0.7.13
+   Compiling clap_builder v4.5.50
+   Compiling toml_edit v0.22.27
+   Compiling rayon v1.11.0
+   Compiling crossterm v0.29.0
+   Compiling libm v0.2.15
+   Compiling lazy_static v1.5.0
+   Compiling unicode-width v0.2.2
+   Compiling log v0.4.28
+   Compiling unicode-segmentation v1.12.0
+   Compiling once_cell v1.21.3
+   Compiling sysinfo v0.30.13
+   Compiling comfy-table v7.2.1
+   Compiling users v0.11.0
+   Compiling humansize v2.1.3
+   Compiling colored v2.2.0
+   Compiling clap v4.5.50
+   Compiling toml v0.8.23
+   Compiling fairshare v0.6.0 (/workspaces/fairshare)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.59s
+     Running `target/debug/fairshare request --cpu 1 --mem 1`
+✓ Allocated 1 CPU(s) and 1G RAM.
+root@codespaces-6f27c4:/workspaces/fairshare# cargo run -- status
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/fairshare status`
+╔═══════════════════════════════════════╗
+║      SYSTEM RESOURCE OVERVIEW         ║
+╚═══════════════════════════════════════╝
+
+╭───────────┬───────┬──────────╮
+│ Metric    ┆ CPUs  ┆ RAM (GB) │
+╞═══════════╪═══════╪══════════╡
+│ Total     ┆ 2     ┆ 8.33     │
+├╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┤
+│ Allocated ┆ -0.00 ┆ -0.00    │
+├╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┤
+│ Available ┆ 2.00  ┆ 8.33     │
+╰───────────┴───────┴──────────╯
+
+root@codespaces-6f27c4:/workspaces/fairshare# cargo run -- info  
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/fairshare info`
+╔═══════════════════════════════════════╗
+║       USER RESOURCE ALLOCATION        ║
+╚═══════════════════════════════════════╝
+
+User: root
+UID: 0
+
+CPU Quota: 100.0% (1.00 CPUs)
+Memory Max: 1.00 GB
+root@codespaces-6f27c4:/workspaces/fairshare# cargo run -- release
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/fairshare release`
+Removed /etc/systemd/system.control/user-0.slice.d/50-CPUQuota.conf.
+Removed /etc/systemd/system.control/user-0.slice.d/50-MemoryMax.conf.
+Removed /etc/systemd/system.control/user-0.slice.d.
+✓ Released user limits back to defaults.
+root@codespaces-6f27c4:/workspaces/fairshare# cargo test -- --nocapture
+   Compiling futures-sink v0.3.31
+   Compiling futures-core v0.3.31
+   Compiling futures-io v0.3.31
+   Compiling futures-channel v0.3.31
+   Compiling futures-task v0.3.31
+   Compiling slab v0.4.11
+   Compiling memchr v2.7.6
+   Compiling pin-utils v0.1.0
+   Compiling pin-project-lite v0.2.16
+   Compiling sdd v3.0.10
+   Compiling scc v2.4.0
+   Compiling futures-util v0.3.31
+   Compiling futures-executor v0.3.31
+   Compiling futures v0.3.31
+   Compiling serial_test v3.2.0
+   Compiling fairshare v0.6.0 (/workspaces/fairshare)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.15s
+     Running unittests src/main.rs (target/debug/deps/fairshare-f99917f5be145b5d)
+
+running 57 tests
+test system::tests::test_check_request_insufficient_cpu ... ok
+test system::tests::test_check_request_insufficient_memory ... ok
+test system::tests::test_check_request_multiple_users ... ok
+test system::tests::test_check_request_sufficient_resources ... ok
+test system::tests::test_check_request_user_modifying_own_allocation ... ok
+test system::tests::test_check_request_exact_available ... ok
+test system::tests::test_get_uid_from_user_string_empty_string ... ok
+test system::tests::test_get_uid_from_user_string_with_invalid_uid ... ok
+test system::tests::test_get_uid_from_user_string_with_invalid_username ... ok
+test system::tests::test_get_uid_from_user_string_with_username ... ok
+test system::tests::test_get_uid_from_user_string_with_valid_uid ... ok
+test system::tests::test_parse_mem_gb_invalid ... ok
+test system::tests::test_parse_mem_gb_plain_number ... ok
+test system::tests::test_parse_mem_gb_with_gigabytes ... ok
+test system::tests::test_parse_mem_gb_with_megabytes ... ok
+test system::tests::test_parse_uid_from_slice_rejects_root ... ok
+test system::tests::test_system_slices_excluded_from_allocations ... ok
+test systemd::tests::test_admin_set_user_limits_accepts_valid_users ... ok
+test systemd::tests::test_admin_set_user_limits_boundary_values ... ok
+test systemd::tests::test_admin_set_user_limits_input_validation_cpu_exceeds_max ... ok
+test systemd::tests::test_admin_set_user_limits_input_validation_mem_exceeds_max ... ok
+test systemd::tests::test_admin_set_user_limits_overflow_detection ... ok
+test systemd::tests::test_admin_set_user_limits_rejects_nonexistent_users ... ok
+test systemd::tests::test_admin_set_user_limits_rejects_root ... ok
+test systemd::tests::test_admin_set_user_limits_rejects_system_users ... ok
+test systemd::tests::test_admin_setup_creates_valid_config_content ... ok
+test systemd::tests::test_admin_setup_defaults_input_validation_cpu_exceeds_max ... ok
+test systemd::tests::test_admin_setup_defaults_input_validation_mem_exceeds_max ... ok
+test systemd::tests::test_boundary_values ... ok
+test systemd::tests::test_cpu_quota_calculation_safe ... ok
+test systemd::tests::test_cpu_quota_overflow_detection ... ok
+test systemd::tests::test_error_messages_are_informative ... ok
+test systemd::tests::test_get_calling_user_uid_accepts_valid_users ... ok
+test systemd::tests::test_get_calling_user_uid_boundary_values ... ok
+test systemd::tests::test_get_calling_user_uid_rejects_invalid_format ... ok
+test systemd::tests::test_get_calling_user_uid_rejects_nonexistent_users ... ok
+test systemd::tests::test_get_calling_user_uid_rejects_root ... ok
+test systemd::tests::test_get_calling_user_uid_rejects_system_users ... ok
+test systemd::tests::test_get_calling_user_uid_without_pkexec_env ... ok
+test systemd::tests::test_max_cpu_cap_overflow_detection ... ok
+test systemd::tests::test_max_valid_cpu_cap_without_overflow ... ok
+test systemd::tests::test_max_valid_cpu_quota_without_overflow ... ok
+test systemd::tests::test_max_valid_memory_conversion_without_overflow ... ok
+test systemd::tests::test_memory_conversion_to_bytes_safe ... ok
+test systemd::tests::test_memory_overflow_detection ... ok
+test systemd::tests::test_near_overflow_values ... ok
+test systemd::tests::test_overflow_checked_mul_cpu_quota ... ok
+test systemd::tests::test_overflow_checked_mul_max_caps ... ok
+test systemd::tests::test_overflow_checked_mul_memory_conversion ... ok
+test systemd::tests::test_sequential_admin_operations_dont_cause_overflow ... ok
+test systemd::tests::test_sequential_operations_dont_cause_overflow ... ok
+test systemd::tests::test_set_user_limits_input_validation_cpu_exceeds_max ... ok
+test systemd::tests::test_set_user_limits_input_validation_mem_exceeds_max ... ok
+test systemd::tests::test_u32_max_causes_proper_rejection ... ok
+test system::tests::test_get_system_totals ... ok
+test systemd::tests::test_zero_values ... ok
+test systemd::tests::test_valid_edge_case_values_in_set_user_limits ... ok
+
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/cli_tests.rs (target/debug/deps/cli_tests-544c8aa834c6283d)
+
+running 32 tests
+test test_admin_help ... ok
+test test_admin_setup_cpu_above_maximum ... ok
+test test_admin_setup_cpu_below_minimum ... ok
+test test_admin_setup_default_values_valid ... ok
+test test_admin_setup_maximum_valid_values ... ok
+test test_admin_setup_mem_above_maximum ... ok
+test test_admin_setup_mem_below_minimum ... ok
+test test_admin_setup_minimum_valid_values ... ok
+test test_admin_uninstall_command_exists_in_help ... ok
+test test_admin_uninstall_help_flag ... ok
+test test_admin_uninstall_force_flag_position ... ok
+test test_admin_uninstall_mentions_daemon_reload ... ok
+test test_admin_uninstall_mentions_systemd_files ... ok
+test test_admin_uninstall_without_force_prompts_for_confirmation ... ok
+test test_admin_uninstall_with_force_flag ... ok
+test test_cli_help ... ok
+test test_cli_version ... ok
+test test_info_command ... ok
+test test_request_boundary_cpu_1 ... ok
+test test_request_boundary_cpu_1000 ... ok
+test test_request_boundary_mem_1 ... ok
+test test_request_boundary_mem_10000 ... ok
+test test_request_cpu_above_maximum ... ok
+test test_request_cpu_below_minimum ... ok
+test test_request_maximum_valid_values ... ok
+test test_request_mem_above_maximum ... ok
+test test_request_mem_below_minimum ... ok
+test test_request_minimum_valid_values ... ok
+test test_request_negative_cpu ... ok
+test test_request_without_args_fails ... ok
+test test_request_negative_mem ... ok
+test test_status_command ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.66s
+
+     Running tests/integration_tests.rs (target/debug/deps/integration_tests-e99f2e163e6d5c28)
+
+running 5 tests
+test test_admin_setup_help ... ok
+test test_full_workflow_help_and_status ... ok
+test test_request_validation ... ok
+test test_multiple_command_execution ... ok
+test test_request_with_invalid_resources ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+root@codespaces-6f27c4:/workspaces/fairshare# 
+root@codespaces-6f27c4:/workspaces/fairshare# systemctl status user-0.slice
+● user-0.slice - User Slice of UID 0
+     Loaded: loaded
+    Drop-In: /lib/systemd/system/user-.slice.d
+             └─10-defaults.conf
+             /etc/systemd/system.control/user-0.slice.d
+             └─50-CPUQuota.conf, 50-MemoryMax.conf
+     Active: active since Mon 2025-12-01 15:06:00 UTC; 20min ago
+       Docs: man:user@.service(5)
+      Tasks: 2 (limit: 3142)
+     Memory: 4.3M (max: 1.8G)
+        CPU: 67ms
+     CGroup: /system.slice/docker-7d9fd64c758c0dfa702fdc643e1d70cefab95525a9ab73f8be3a3483ed6a5792.scope/user.slice/user-0.slice
+             └─user@0.service
+               └─init.scope
+                 ├─751 /lib/systemd/systemd --user
+                 └─752 (sd-pam)
+
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Listening on GnuPG network certificate management daemon.
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Listening on GnuPG cryptographic agent and passphrase cache (access for web browsers).
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Listening on GnuPG cryptographic agent and passphrase cache (restricted).
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Listening on GnuPG cryptographic agent (ssh-agent emulation).
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Listening on GnuPG cryptographic agent and passphrase cache.
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Listening on D-Bus User Message Bus Socket.
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Reached target Sockets.
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Reached target Basic System.
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Reached target Main User Target.
+Dec 01 15:06:00 codespaces-6f27c4 systemd[751]: Startup finished in 112ms.
+root@codespaces-6f27c4:/workspaces/fairshare# ls /etc/systemd/system.control/user-0.slice.d/
+50-CPUQuota.conf  50-MemoryMax.conf
+root@codespaces-6f27c4:/workspaces/fairshare# systemctl show user-0.slice | grep CPUQuota
+CPUQuotaPerSecUSec=1s
+CPUQuotaPeriodUSec=infinity
+DropInPaths=/lib/systemd/system/user-.slice.d/10-defaults.conf /etc/systemd/system.control/user-0.slice.d/50-CPUQuota.conf /etc/systemd/system.control/user-0.slice.d/50-MemoryMax.conf
+root@codespaces-6f27c4:/workspaces/fairshare# systemctl show user-0.slice | grep MemoryMax
+MemoryMax=2000000000
+DropInPaths=/lib/systemd/system/user-.slice.d/10-defaults.conf /etc/systemd/system.control/user-0.slice.d/50-CPUQuota.conf /etc/systemd/system.control/user-0.slice.d/50-MemoryMax.conf
+root@codespaces-6f27c4:/workspaces/fairshare# 

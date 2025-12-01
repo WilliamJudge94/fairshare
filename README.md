@@ -301,6 +301,10 @@ After running `sudo fairshare admin setup`, systemd needs to reload:
 sudo systemctl daemon-reload
 ```
 
+## Quick testing tip
+
+If you want a clean, preconfigured environment with systemd and cgroups available out of the box, GitHub Codespaces can be a convenient option for running and testing fairshare. Refer the [Guide](docs/codespaces.md)
+
 ## License
 
 This project is open source.
