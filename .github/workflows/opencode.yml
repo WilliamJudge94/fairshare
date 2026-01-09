@@ -23,6 +23,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: List available models
+        uses: anomalyco/opencode/github@latest
+        with:
+          command: opencode models
+
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
