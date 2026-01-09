@@ -28,4 +28,4 @@ jobs:
         uses: anomalyco/opencode/github@latest
         with:
           model: github-copilot/gpt-5
-          token: ${{ secrets.GITHUB_TOKEN }}
+          use_github_token: true
