@@ -3,7 +3,7 @@ name: Version Check
 on:
   pull_request:
     branches:
-      - other
+      - main
 
 jobs:
   check-version:
