@@ -12,6 +12,7 @@ humansize = "2.1"
 users = "0.11"
 colored = "2.1"
 comfy-table = "7.1"
+libc = "0.2"
 
 [dev-dependencies]
 serial_test = "3.2"

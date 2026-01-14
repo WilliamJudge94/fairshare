@@ -109,7 +109,7 @@ fn main() {
             print_status(&totals, &allocations);
         }
 
-        Commands::Request { cpu, mem, all } => {
+        Commands::Request { cpu, mem, disk, all } => {
             let totals = get_system_totals();
             let allocations = match get_user_allocations() {
                 Ok(allocs) => allocs,
@@ -126,9 +126,9 @@ fn main() {
             };
 
             // Determine actual CPU and memory to request
-            let (actual_cpu, actual_mem) = if *all {
+            let (actual_cpu, actual_mem, actual_disk) = if *all {
                 // Calculate all available resources
-                let (avail_cpu, avail_mem) =
+                let (avail_cpu, avail_mem, avail_disk) =
                     calculate_available_resources(&totals, &allocations, calling_uid.as_deref());
 
                 if avail_cpu == 0 && avail_mem == 0 {
@@ -140,10 +140,10 @@ fn main() {
                     std::process::exit(1);
                 }
 
-                (avail_cpu, avail_mem)
+                (avail_cpu, avail_mem, avail_disk)
             } else {
                 // Use the provided CPU and memory values
-                (cpu.unwrap(), mem.unwrap())
+                (cpu.unwrap(), mem.unwrap(), disk.unwrap())
             };
 
             if !check_request(
@@ -151,6 +151,7 @@ fn main() {
                 &allocations,
                 actual_cpu,
                 &actual_mem.to_string(),
+                actual_disk,
                 calling_uid.as_deref(),
             ) {
                 eprintln!(
@@ -161,7 +162,7 @@ fn main() {
                 std::process::exit(1);
             }
 
-            if let Err(e) = set_user_limits(actual_cpu, actual_mem) {
+            if let Err(e) = systemd::set_user_limits(actual_cpu, actual_mem, actual_disk) {
                 eprintln!(
                     "{} {}: {}",
                     "✗".red().bold(),
@@ -172,10 +173,11 @@ fn main() {
             }
 
             println!(
-                "{} Allocated {} and {}.",
+                "{} Allocated {}, {} and {}.",
                 "✓".green().bold(),
                 format!("{} CPU(s)", actual_cpu).bright_yellow().bold(),
-                format!("{}G RAM", actual_mem).bright_yellow().bold()
+                format!("{}G RAM", actual_mem).bright_yellow().bold(),
+                format!("{}G Disk", actual_disk).bright_yellow().bold()
             );
 
             // If --all was used, display the ASCII art
@@ -212,20 +214,30 @@ fn main() {
             AdminSubcommands::Setup {
                 cpu,
                 mem,
+                disk,
                 cpu_reserve,
                 mem_reserve,
+                disk_reserve,
+                disk_partition,
             } => {
-                if let Err(e) = admin_setup_defaults(*cpu, *mem, *cpu_reserve, *mem_reserve) {
+                if let Err(e) = admin_setup_defaults(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.to_string()) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Setup failed".red(), e);
                     std::process::exit(1);
                 }
                 println!(
-                    "{} Global defaults applied: {} {} (Reserves: {} CPUs, {}G RAM)",
+                    "{} Global defaults applied: {} {} {} (Reserves: {} CPUs, {}G RAM, {}G Disk)",
                     "✓".green().bold(),
                     format!("CPUQuota={}%", cpu * 100).bright_yellow(),
                     format!("MemoryMax={}G", mem).bright_yellow(),
+                    format!("Disk={}G", disk).bright_yellow(),
                     format!("{}", cpu_reserve).bright_cyan(),
-                    format!("{}", mem_reserve).bright_cyan()
+                    format!("{}", mem_reserve).bright_cyan(),
+                    format!("{}", disk_reserve).bright_cyan()
+                );
+                println!(
+                     "{} Monitored Partition: {}",
+                     "→".bright_white(),
+                     disk_partition.bright_cyan()
                 );
             }
             AdminSubcommands::Uninstall { force } => {
@@ -270,19 +282,58 @@ fn main() {
             AdminSubcommands::Reset {
                 cpu,
                 mem,
+                disk,
                 cpu_reserve,
                 mem_reserve,
+                disk_reserve,
+                disk_partition,
                 force,
             } => {
-                if let Err(e) = admin_reset(*cpu, *mem, *cpu_reserve, *mem_reserve, *force) {
+                if !force {
+                    eprintln!(
+                        "{} {}",
+                        "⚠".bright_yellow().bold(),
+                        "This will reset all fairshare defaults and remove active user overrides!".bright_yellow()
+                    );
+                    eprintln!("{} ", "  This will:".bright_white().bold());
+                    eprintln!("    - Revert all active user allocations");
+                    eprintln!("    - Remove all fairshare configuration files");
+                    eprintln!(
+                        "    - Setup new defaults with {} CPUs, {}G RAM, and {}G Disk per user",
+                        cpu, mem, disk
+                    );
+                    eprint!(
+                        "\n{} {}",
+                        "Continue?".bright_white().bold(),
+                        "[y/N]: ".bright_white()
+                    );
+                    std::io::Write::flush(&mut std::io::stderr()).ok();
+
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input).ok();
+                    if !input.trim().eq_ignore_ascii_case("y")
+                        && !input.trim().eq_ignore_ascii_case("yes")
+                    {
+                        println!("{} {}", "✗".red().bold(), "Reset cancelled.".red());
+                        return;
+                    }
+                }
+
+                if let Err(e) = admin_reset(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.to_string()) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Reset failed".red(), e);
                     std::process::exit(1);
                 }
+                println!(
+                    "{} {}",
+                    "✓".green().bold(),
+                    "System limits reset and defaults applied.".green()
+                );
             }
             AdminSubcommands::SetUser {
                 user,
                 cpu,
                 mem,
+                disk,
                 force,
             } => {
                 // Convert username or UID string to UID
@@ -314,6 +365,7 @@ fn main() {
                     &allocations,
                     *cpu,
                     &mem.to_string(),
+                    *disk,
                     Some(&uid.to_string()),
                 ) {
                     if !force {
@@ -347,13 +399,12 @@ fn main() {
                         eprintln!(
                             "{} {}",
                             "⚠".bright_yellow().bold(),
-                            "WARNING: Allocating resources beyond available capacity (forced)."
-                                .bright_yellow()
+                            "Forcing allocation exceeding available resources.".bright_yellow()
                         );
                     }
                 }
 
-                if let Err(e) = systemd::admin_set_user_limits(uid, *cpu, *mem) {
+                if let Err(e) = admin_set_user_limits(uid, *cpu, *mem, *disk) {
                     eprintln!(
                         "{} {}: {}",
                         "✗".red().bold(),
@@ -364,10 +415,11 @@ fn main() {
                 }
 
                 println!(
-                    "{} Allocated {} and {} for user {}.",
+                    "{} Allocated {}, {} and {} for user {}.",
                     "✓".green().bold(),
                     format!("{} CPU(s)", cpu).bright_yellow().bold(),
                     format!("{}G RAM", mem).bright_yellow().bold(),
+                    format!("{}G Disk", disk).bright_yellow().bold(),
                     username.bright_cyan()
                 );
             }

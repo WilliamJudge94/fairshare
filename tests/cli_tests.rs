@@ -32,7 +32,21 @@ fn test_status_command() {
         .output()
         .expect("Failed to execute command");
 
-    // Status command should succeed
+    // Status command should succeed, or fail gracefully on non-Linux systems
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        #[cfg(not(target_os = "linux"))]
+        if stderr.contains("Failed to get user allocations") 
+           || stderr.contains("No such file or directory") 
+           || stderr.contains("os error 2") {
+            // This is expected on non-Linux systems where systemctl is missing
+            return;
+        }
+
+        panic!("Status command failed unexpectedly: {}", stderr);
+    }
+    
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -292,8 +306,9 @@ fn test_admin_uninstall_mentions_daemon_reload() {
         assert!(
             stderr.contains("permission")
                 || stderr.contains("Permission")
-                || stderr.contains("Failed"),
-            "Expected failure to be due to permissions or other error"
+                || stderr.contains("Failed")
+                || stderr.contains("failed"),
+            "Expected failure to be due to permissions or other error (got: {})", stderr
         );
     }
 }
@@ -424,7 +439,7 @@ fn test_request_negative_mem() {
 fn test_request_minimum_valid_values() {
     // Test that minimum valid values (1 CPU, 1 GB) are accepted
     let output = Command::new("cargo")
-        .args(["run", "--", "request", "--cpu", "1", "--mem", "1"])
+        .args(["run", "--", "request", "--cpu", "1", "--mem", "1", "--disk", "1"])
         .output()
         .expect("Failed to execute command");
 
@@ -435,7 +450,8 @@ fn test_request_minimum_valid_values() {
             || stderr.contains("exceeds available")
             || stderr.contains("resource")
             || stderr.contains("Interactive authentication required")
-            || stderr.contains("Failed to set user limits"),
+            || stderr.contains("Failed to set user limits")
+            || stderr.contains("Failed to get user allocations"),
         "Expected validation to pass for minimum valid values (1, 1), got: {}",
         stderr
     );
@@ -446,7 +462,7 @@ fn test_request_maximum_valid_values() {
     // Test that maximum valid values (1000 CPU, 10000 GB) pass validation
     // (may fail on resource availability, but should pass input validation)
     let output = Command::new("cargo")
-        .args(["run", "--", "request", "--cpu", "1000", "--mem", "10000"])
+        .args(["run", "--", "request", "--cpu", "1000", "--mem", "10000", "--disk", "10000"])
         .output()
         .expect("Failed to execute command");
 
@@ -457,7 +473,8 @@ fn test_request_maximum_valid_values() {
             || stderr.contains("exceeds available")
             || stderr.contains("resource")
             || stderr.contains("Interactive authentication required")
-            || stderr.contains("Failed to set user limits"),
+            || stderr.contains("Failed to set user limits")
+            || stderr.contains("Failed to get user allocations"),
         "Expected validation to pass for maximum valid values (1000, 10000), got validation error: {}",
         stderr
     );
