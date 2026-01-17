@@ -33,15 +33,15 @@ jobs:
             echo "Tag v${{ steps.version.outputs.version }} does not exist, proceeding with release"
           fi
 
-      - name: Build Docker image for GLIBC 2.34 compatibility
+      - name: Build Docker image for GLIBC 2.31 compatibility
         if: steps.check-tag.outputs.exists == 'false'
         run: |
           docker build -t fairshare-builder -f Dockerfile.release .
 
-      - name: Build release binaries in Rocky Linux 9 container
+      - name: Build release binaries in Debian 11 container
         if: steps.check-tag.outputs.exists == 'false'
         run: |
-          # Build binaries in container with GLIBC 2.34
+          # Build binaries in container with GLIBC 2.31 for maximum compatibility
           docker run --rm \
             -v ${{ github.workspace }}:/build \
             -w /build \
