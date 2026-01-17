@@ -70,8 +70,7 @@ jobs:
 
       - name: Verify x86_64 binary runs
         run: |
-          # Test that the binary at least shows help
-          chmod +x releases/fairshare-x86_64
+          # Test that the binary at least shows help (binary is already executable)
           ./releases/fairshare-x86_64 --version
           ./releases/fairshare-x86_64 --help
 
