@@ -43,6 +43,20 @@ sudo fairshare admin set-user --user bob --cpu 10 --mem 20 --force
 
 ## Step 1: Build the Binaries
 
+### GLIBC Compatibility
+
+**Important**: Starting from version 0.9.0, release binaries are built in a Debian 11 (Bullseye) container with GLIBC 2.31 to ensure maximum compatibility across Linux distributions.
+
+This fixes the issue where binaries built on Ubuntu 24.04 (GLIBC 2.39) would not run on older systems like RHEL 9 (GLIBC 2.34).
+
+**Compatible Systems:**
+- RHEL 9+ (GLIBC 2.34)
+- Debian 11+ (GLIBC 2.31)
+- Ubuntu 20.04+ (GLIBC 2.31)
+- Rocky Linux 9+ (GLIBC 2.34)
+- AlmaLinux 9+ (GLIBC 2.34)
+- Any distribution with GLIBC 2.31 or newer
+
 ### Using the Makefile (Recommended)
 
 The simplest way to build both architectures:
@@ -55,6 +69,8 @@ sudo make setup-cross
 make compile-releases
 ```
 
+**Note**: The Makefile builds on your local system. For maximum compatibility, the GitHub Actions workflow uses Docker to build in a Debian 11 environment. See "Using Docker for GLIBC Compatibility" below.
+
 This creates:
 ```
 releases/
@@ -62,6 +78,29 @@ releases/
 ├── fairshare-aarch64   # ARM 64-bit (~1.6 MB, stripped)
 └── SHA256SUMS          # Checksums for verification
 ```
+
+### Using Docker for GLIBC Compatibility (Recommended for Releases)
+
+To ensure your binaries work on older systems, build inside the Debian 11 container:
+
+```bash
+# Build the Docker image
+docker build -t fairshare-builder -f Dockerfile.release .
+
+# Build binaries in the container
+docker run --rm \
+  -v $(pwd):/build \
+  -w /build \
+  fairshare-builder \
+  bash -c "
+    mkdir -p .cargo
+    echo '[target.aarch64-unknown-linux-gnu]' > .cargo/config.toml
+    echo 'linker = \"aarch64-linux-gnu-gcc\"' >> .cargo/config.toml
+    make compile-releases
+  "
+```
+
+This matches the GitHub Actions build environment and ensures GLIBC 2.31 compatibility.
 
 ### Build x86_64 Only (Faster)
 

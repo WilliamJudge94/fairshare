@@ -33,27 +33,28 @@ jobs:
             echo "Tag v${{ steps.version.outputs.version }} does not exist, proceeding with release"
           fi
 
-      - name: Install Rust toolchain
-        if: steps.check-tag.outputs.exists == 'false'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup cross-compilation
+      - name: Build Docker image for GLIBC 2.34 compatibility
         if: steps.check-tag.outputs.exists == 'false'
         run: |
-          # Add Rust targets (doesn't need sudo)
-          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+          docker build -t fairshare-builder -f Dockerfile.release .
 
-          # Install cross-compilation tools (needs sudo)
-          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-
-          # Configure cargo for aarch64
-          mkdir -p .cargo
-          echo "[target.aarch64-unknown-linux-gnu]" > .cargo/config.toml
-          echo "linker = \"aarch64-linux-gnu-gcc\"" >> .cargo/config.toml
-
-      - name: Build release binaries
+      - name: Build release binaries in Rocky Linux 9 container
         if: steps.check-tag.outputs.exists == 'false'
-        run: make compile-releases
+        run: |
+          # Build binaries in container with GLIBC 2.34
+          docker run --rm \
+            -v ${{ github.workspace }}:/build \
+            -w /build \
+            fairshare-builder \
+            bash -c "
+              # Configure cargo for aarch64
+              mkdir -p .cargo
+              echo '[target.aarch64-unknown-linux-gnu]' > .cargo/config.toml
+              echo 'linker = \"aarch64-linux-gnu-gcc\"' >> .cargo/config.toml
+              
+              # Build binaries
+              make compile-releases
+            "
 
       - name: Create release
         if: steps.check-tag.outputs.exists == 'false'
