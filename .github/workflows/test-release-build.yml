@@ -1,0 +1,125 @@
+name: Test Release Build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'Dockerfile.release'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/test-release-build.yml'
+
+jobs:
+  test-release-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install binutils for GLIBC verification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils file
+
+      - name: Build Docker image for GLIBC 2.31 compatibility
+        run: |
+          docker build -t fairshare-builder -f Dockerfile.release .
+
+      - name: Build release binaries in Debian 11 container
+        run: |
+          # Build binaries in container with GLIBC 2.31 for maximum compatibility
+          docker run --rm \
+            -v ${{ github.workspace }}:/build \
+            -w /build \
+            fairshare-builder \
+            bash -c "
+              # Configure cargo for aarch64
+              mkdir -p .cargo
+              echo '[target.aarch64-unknown-linux-gnu]' > .cargo/config.toml
+              echo 'linker = \"aarch64-linux-gnu-gcc\"' >> .cargo/config.toml
+              
+              # Build binaries
+              make compile-releases
+            "
+
+      - name: Verify binaries were created
+        run: |
+          ls -lh releases/
+          if [ ! -f "releases/fairshare-x86_64" ]; then
+            echo "Error: x86_64 binary not found"
+            exit 1
+          fi
+          if [ ! -f "releases/fairshare-aarch64" ]; then
+            echo "Error: aarch64 binary not found"
+            exit 1
+          fi
+          if [ ! -f "releases/SHA256SUMS" ]; then
+            echo "Error: SHA256SUMS not found"
+            exit 1
+          fi
+          echo "✓ All release binaries created successfully"
+
+      - name: Test GLIBC compatibility
+        run: |
+          chmod +x test-glibc-compat.sh
+          ./test-glibc-compat.sh
+
+      - name: Verify x86_64 binary runs
+        run: |
+          # Test that the binary at least shows help
+          chmod +x releases/fairshare-x86_64
+          ./releases/fairshare-x86_64 --version
+          ./releases/fairshare-x86_64 --help
+
+      - name: Test binary in RHEL 9 container (simulated)
+        run: |
+          # Use Rocky Linux 9 to simulate RHEL 9 environment
+          docker run --rm \
+            -v ${{ github.workspace }}/releases:/releases \
+            rockylinux:9 \
+            /releases/fairshare-x86_64 --version
+
+      - name: Test binary in Debian 11 container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/releases:/releases \
+            debian:11 \
+            /releases/fairshare-x86_64 --version
+
+      - name: Test binary in Ubuntu 20.04 container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/releases:/releases \
+            ubuntu:20.04 \
+            /releases/fairshare-x86_64 --version
+
+      - name: Upload binaries as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: |
+            releases/fairshare-x86_64
+            releases/fairshare-aarch64
+            releases/SHA256SUMS
+          retention-days: 7
+
+      - name: Summary
+        run: |
+          echo "## Release Build Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Docker image built successfully" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Release binaries compiled in Debian 11 container" >> $GITHUB_STEP_SUMMARY
+          echo "✅ GLIBC compatibility verified" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Binary tested on RHEL 9 (Rocky Linux 9)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Binary tested on Debian 11" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Binary tested on Ubuntu 20.04" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GLIBC Compatibility" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          MAX_GLIBC=$(objdump -T releases/fairshare-x86_64 | grep GLIBC | sed 's/.*GLIBC_\([0-9.]*\).*/\1/' | sort -V | uniq | tail -1)
+          echo "Maximum GLIBC version required: $MAX_GLIBC" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
