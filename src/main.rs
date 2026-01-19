@@ -220,25 +220,36 @@ fn main() {
                 disk_reserve,
                 disk_partition,
             } => {
-                if let Err(e) = admin_setup_defaults(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.to_string()) {
+                if let Err(e) = admin_setup_defaults(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.clone()) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Setup failed".red(), e);
                     std::process::exit(1);
                 }
+                
+                // Build the output message based on whether disk quotas were configured
+                let disk_msg = if let Some(d) = disk {
+                    format!("Disk={}G", d).bright_yellow().to_string()
+                } else {
+                    "Disk=disabled".bright_white().to_string()
+                };
+                
                 println!(
                     "{} Global defaults applied: {} {} {} (Reserves: {} CPUs, {}G RAM, {}G Disk)",
                     "✓".green().bold(),
                     format!("CPUQuota={}%", cpu * 100).bright_yellow(),
                     format!("MemoryMax={}G", mem).bright_yellow(),
-                    format!("Disk={}G", disk).bright_yellow(),
+                    disk_msg,
                     format!("{}", cpu_reserve).bright_cyan(),
                     format!("{}", mem_reserve).bright_cyan(),
                     format!("{}", disk_reserve).bright_cyan()
                 );
-                println!(
-                     "{} Monitored Partition: {}",
-                     "→".bright_white(),
-                     disk_partition.bright_cyan()
-                );
+                
+                if let Some(ref partition) = disk_partition {
+                    println!(
+                         "{} Monitored Partition: {}",
+                         "→".bright_white(),
+                         partition.bright_cyan()
+                    );
+                }
             }
             AdminSubcommands::Uninstall { force } => {
                 if !force {
@@ -298,9 +309,14 @@ fn main() {
                     eprintln!("{} ", "  This will:".bright_white().bold());
                     eprintln!("    - Revert all active user allocations");
                     eprintln!("    - Remove all fairshare configuration files");
+                    let disk_msg = if let Some(d) = disk {
+                        format!("{}G Disk", d)
+                    } else {
+                        "no disk quota".to_string()
+                    };
                     eprintln!(
-                        "    - Setup new defaults with {} CPUs, {}G RAM, and {}G Disk per user",
-                        cpu, mem, disk
+                        "    - Setup new defaults with {} CPUs, {}G RAM, and {} per user",
+                        cpu, mem, disk_msg
                     );
                     eprint!(
                         "\n{} {}",
@@ -319,7 +335,7 @@ fn main() {
                     }
                 }
 
-                if let Err(e) = admin_reset(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.to_string()) {
+                if let Err(e) = admin_reset(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.clone()) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Reset failed".red(), e);
                     std::process::exit(1);
                 }

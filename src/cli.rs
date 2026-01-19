@@ -76,9 +76,9 @@ pub enum AdminSubcommands {
         #[arg(long, default_value_t = 2, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem: u32,
 
-        /// Default amount of disk per user in GB (1-10000)
-        #[arg(long, default_value_t = 2, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
-        disk: u32,
+        /// Default amount of disk per user in GB (1-10000). Only applied when --disk-partition is also set.
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
+        disk: Option<u32>,
 
         /// System CPU reserve (1-1000, default: 2)
         #[arg(long, default_value_t = 2, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
@@ -88,13 +88,13 @@ pub enum AdminSubcommands {
         #[arg(long, default_value_t = 4, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem_reserve: u32,
 
-        /// System disk reserve in GB (1-10000, default: 4)
+        /// System disk reserve in GB (1-10000, default: 4). Only used when --disk is set.
         #[arg(long, default_value_t = 4, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
         disk_reserve: u32,
 
-        /// System disk partition to monitor (default: /home)
-        #[arg(long, default_value = "/home")]
-        disk_partition: String,
+        /// System disk partition to monitor (e.g., /home, /data). Required for disk quotas.
+        #[arg(long)]
+        disk_partition: Option<String>,
     },
 
     /// Uninstall global defaults and remove all fairshare admin configuration
@@ -111,12 +111,12 @@ pub enum AdminSubcommands {
         cpu: u32,
 
         /// Default amount of memory per user in GB (1-10000)
-        #[arg(long, default_value_t = 4, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
+        #[arg(long, default_value_t = 2, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem: u32,
 
-        /// Default amount of disk per user in GB (1-10000)
-        #[arg(long, default_value_t = 1, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
-        disk: u32,
+        /// Default amount of disk per user in GB (1-10000). Only applied when --disk-partition is also set.
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
+        disk: Option<u32>,
 
         /// System CPU reserve (1-1000, default: 2)
         #[arg(long, default_value_t = 2, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_CPU as u64..=MAX_CPU as u64))]
@@ -126,13 +126,13 @@ pub enum AdminSubcommands {
         #[arg(long, default_value_t = 4, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem_reserve: u32,
 
-        /// System disk reserve in GB (1-10000, default: 4)
+        /// System disk reserve in GB (1-10000, default: 4). Only used when --disk is set.
         #[arg(long, default_value_t = 4, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
         disk_reserve: u32,
 
-        /// System disk partition to monitor (default: /home)
-        #[arg(long, default_value = "/home")]
-        disk_partition: String,
+        /// System disk partition to monitor (e.g., /home, /data). Required for disk quotas.
+        #[arg(long)]
+        disk_partition: Option<String>,
 
         /// Skip confirmation prompt
         #[arg(long)]

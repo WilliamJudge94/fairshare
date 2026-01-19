@@ -174,17 +174,25 @@ sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4
 # Or use custom values
 sudo fairshare admin setup --cpu 2 --mem 4 --cpu-reserve 4 --mem-reserve 8
 
-# With disk quota on a specific partition
+# With optional disk quota on a specific partition
 sudo fairshare admin setup --cpu 1 --mem 2 --disk 10 --disk-partition /home
+
+# Disk quota on a different partition (e.g., /data, /mnt)
+sudo fairshare admin setup --cpu 1 --mem 2 --disk 10 --disk-partition /mnt
 
 # Disk quota with custom reserve
 sudo fairshare admin setup --cpu 1 --mem 2 --disk 10 --disk-partition /home --disk-reserve 5
 ```
 
-**Disk Quota Options:**
+**Disk Quota Options (Optional):**
+
+Disk quotas are **optional**. If you don't specify `--disk` and `--disk-partition`, fairshare will only manage CPU and memory limits.
+
 - `--disk <GB>`: Set default disk quota per user in gigabytes (1-10000 GB)
-- `--disk-partition <path>`: Mount point where quotas will be enforced (e.g., `/home`, `/data`)
+- `--disk-partition <path>`: Mount point where quotas will be enforced (e.g., `/home`, `/mnt`, `/data`)
 - `--disk-reserve <GB>`: Reserve disk space for system use (default: 4GB)
+
+> **Note:** Both `--disk` and `--disk-partition` must be specified together to enable disk quotas.
 
 **Disk Quota Requirements:**
 > **Important:** Disk quotas require filesystem-level quota support to be enabled.

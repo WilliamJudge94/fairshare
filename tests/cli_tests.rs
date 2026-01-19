@@ -40,7 +40,10 @@ fn test_status_command() {
         if stderr.contains("Failed to get user allocations") 
            || stderr.contains("No such file or directory") 
            || stderr.contains("os error 2") {
-            // This is expected on non-Linux systems where systemctl is missing
+            // On non-Linux systems, these errors are expected because systemctl may be missing,
+            // so we treat them as a graceful failure and return early.
+            // On Linux, seeing these errors indicates a real failure (e.g., quota/systemd setup),
+            // so we intentionally let the test panic below.
             return;
         }
 

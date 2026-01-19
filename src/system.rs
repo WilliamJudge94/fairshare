@@ -85,7 +85,7 @@ pub fn get_system_disk_reserve() -> u32 {
     }
 }
 
-/// Read the configured disk partition from policy.toml make it configurable. defaults to /home
+/// Read the configured disk partition from policy.toml. Defaults to /home.
 pub fn get_configured_disk_partition() -> Option<String> {
     let policy_path = "/etc/fairshare/policy.toml";
 
@@ -430,7 +430,7 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
         .map(|a| a.disk_bytes as f64 / 1_000_000_000.0)
         .sum();
 
-    let available_cpu =totals.total_cpu as f64 - used_cpu - cpu_reserve;
+    let available_cpu = totals.total_cpu as f64 - used_cpu - cpu_reserve;
     let available_mem = totals.total_mem_gb - used_mem - mem_reserve;
     let available_disk = totals.total_disk_gb - used_disk - disk_reserve;
 
