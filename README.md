@@ -97,6 +97,18 @@ The wrapper script automatically detects whether you're running an admin command
 - **Linux** with systemd (including user session support)
 - **PolicyKit (polkit)** for privilege escalation (automatically installed by the installer if missing)
 - **Rust 1.70+** (only needed for building from source)
+- **GLIBC 2.31+** (compatible with RHEL 9, Debian 11+, Ubuntu 20.04+, and most modern distributions)
+
+#### Compatibility Notes
+
+Release binaries are built with GLIBC 2.31 for maximum compatibility:
+- ✅ **RHEL 9+** (GLIBC 2.34)
+- ✅ **Debian 11+** (GLIBC 2.31)
+- ✅ **Ubuntu 20.04+** (GLIBC 2.31)
+- ✅ **Rocky Linux 9+** (GLIBC 2.34)
+- ✅ **AlmaLinux 9+** (GLIBC 2.34)
+
+If you encounter GLIBC version errors, try building from source on your system.
 
 ### Uninstall
 

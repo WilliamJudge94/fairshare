@@ -1,0 +1,29 @@
+# Build container for fairshare with GLIBC 2.31 compatibility (for RHEL 9+)
+# Using Debian 11 (Bullseye) which has GLIBC 2.31, providing maximum compatibility
+# This ensures binaries work on RHEL 9 (GLIBC 2.34), Debian 11+, Ubuntu 20.04+, etc.
+FROM debian:11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    gcc-aarch64-linux-gnu \
+    make \
+    perl \
+    git \
+    curl \
+    ca-certificates \
+    libssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Add cross-compilation targets
+RUN /root/.cargo/bin/rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+
+WORKDIR /build
