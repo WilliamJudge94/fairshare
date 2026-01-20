@@ -109,12 +109,16 @@ pub fn get_system_totals() -> SystemTotals {
 
     // Get total size of configured partition (defaults to /home), or root if not found
     let disk_partition = get_configured_disk_partition().unwrap_or_else(|| "/home".to_string());
-    
+
     let disks = sysinfo::Disks::new_with_refreshed_list();
     let total_disk_gb = disks
         .iter()
         .find(|d| d.mount_point() == std::path::Path::new(&disk_partition))
-        .or_else(|| disks.iter().find(|d| d.mount_point() == std::path::Path::new("/")))
+        .or_else(|| {
+            disks
+                .iter()
+                .find(|d| d.mount_point() == std::path::Path::new("/"))
+        })
         .map(|d| d.total_space() as f64 / 1_000_000_000.0)
         .unwrap_or(0.0);
 
@@ -128,14 +132,14 @@ pub fn get_system_totals() -> SystemTotals {
 pub fn get_user_allocations() -> io::Result<Vec<UserAlloc>> {
     // Query systemd directly for user allocations
     let mut allocations = get_user_allocations_from_systemd()?;
-    
+
     // Enrich with disk quotas
     for alloc in &mut allocations {
         if let Ok(uid_int) = alloc.uid.parse::<u32>() {
             alloc.disk_bytes = crate::systemd::get_user_disk_quota(uid_int).unwrap_or(0);
         }
     }
-    
+
     Ok(allocations)
 }
 
@@ -200,7 +204,7 @@ fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
         let out = String::from_utf8_lossy(&info.stdout);
         let mut mem_bytes = 0;
         let mut cpu_quota = 0.0;
-        
+
         let uid_val = uid.parse::<u32>().unwrap_or(0);
         let disk_bytes = crate::systemd::get_user_disk_quota(uid_val).unwrap_or(0);
 
@@ -280,19 +284,24 @@ pub fn calculate_available_resources(
 
     // If the requesting user already has an allocation, subtract it from used resources
     // This allows us to check if the NET INCREASE fits, not the entire new request
-    let (adjusted_used_cpu, adjusted_used_mem, adjusted_used_disk) = if let Some(uid) = requesting_user_uid {
-        let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
-        if let Some(alloc) = current_user_alloc {
-            let current_cpu = alloc.cpu_quota / 100.0;
-            let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
-            let current_disk = alloc.disk_bytes as f64 / 1_000_000_000.0;
-            (used_cpu - current_cpu, used_mem - current_mem, used_disk - current_disk)
+    let (adjusted_used_cpu, adjusted_used_mem, adjusted_used_disk) =
+        if let Some(uid) = requesting_user_uid {
+            let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
+            if let Some(alloc) = current_user_alloc {
+                let current_cpu = alloc.cpu_quota / 100.0;
+                let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
+                let current_disk = alloc.disk_bytes as f64 / 1_000_000_000.0;
+                (
+                    used_cpu - current_cpu,
+                    used_mem - current_mem,
+                    used_disk - current_disk,
+                )
+            } else {
+                (used_cpu, used_mem, used_disk)
+            }
         } else {
             (used_cpu, used_mem, used_disk)
-        }
-    } else {
-        (used_cpu, used_mem, used_disk)
-    };
+        };
 
     // Subtract the system reserves from available resources
     let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
@@ -345,19 +354,24 @@ pub fn check_request(
 
     // If the requesting user already has an allocation, subtract it from used resources
     // This allows us to check if the NET INCREASE fits, not the entire new request
-    let (adjusted_used_cpu, adjusted_used_mem, adjusted_used_disk) = if let Some(uid) = requesting_user_uid {
-        let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
-        if let Some(alloc) = current_user_alloc {
-            let current_cpu = alloc.cpu_quota / 100.0;
-            let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
-            let current_disk = alloc.disk_bytes as f64 / 1_000_000_000.0;
-            (used_cpu - current_cpu, used_mem - current_mem, used_disk - current_disk)
+    let (adjusted_used_cpu, adjusted_used_mem, adjusted_used_disk) =
+        if let Some(uid) = requesting_user_uid {
+            let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
+            if let Some(alloc) = current_user_alloc {
+                let current_cpu = alloc.cpu_quota / 100.0;
+                let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
+                let current_disk = alloc.disk_bytes as f64 / 1_000_000_000.0;
+                (
+                    used_cpu - current_cpu,
+                    used_mem - current_mem,
+                    used_disk - current_disk,
+                )
+            } else {
+                (used_cpu, used_mem, used_disk)
+            }
         } else {
             (used_cpu, used_mem, used_disk)
-        }
-    } else {
-        (used_cpu, used_mem, used_disk)
-    };
+        };
 
     // Subtract the system reserves from available resources
     let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
@@ -759,11 +773,25 @@ mod tests {
         // Available = (16 - 2 - cpu_reserve, 32 - 5 - mem_reserve)
         // With reserves (2, 4): Available = (12, 23)
         // Request: 5 CPUs, 11 GB - should succeed since 5 <= 12 and 11 <= 23
-        assert!(check_request(&totals, &allocations, 5, "11", 0, Some("1000")));
+        assert!(check_request(
+            &totals,
+            &allocations,
+            5,
+            "11",
+            0,
+            Some("1000")
+        ));
 
         // User 1001 trying to request 1 CPU and 3 GB (decrease from 2 CPUs, 5 GB)
         // Should definitely succeed as this is a decrease
-        assert!(check_request(&totals, &allocations, 1, "3", 0, Some("1001")));
+        assert!(check_request(
+            &totals,
+            &allocations,
+            1,
+            "3",
+            0,
+            Some("1001")
+        ));
 
         // Calculate what's actually available for a new user
         // Used: 6 CPUs, 15 GB
@@ -850,8 +878,8 @@ mod tests {
         };
         let allocations = vec![UserAlloc {
             uid: "1000".to_string(),
-            cpu_quota: 200.0,         // 2 CPUs
-            mem_bytes: 4_000_000_000, // 4 GB
+            cpu_quota: 200.0,           // 2 CPUs
+            mem_bytes: 4_000_000_000,   // 4 GB
             disk_bytes: 50_000_000_000, // 50 GB
         }];
 

@@ -39,7 +39,9 @@ fn test_full_workflow_help_and_status() {
 fn test_request_validation() {
     // Test that request command validates arguments properly
     let output = Command::new("cargo")
-        .args(["run", "--", "request", "--cpu", "1", "--mem", "2", "--disk", "1"])
+        .args([
+            "run", "--", "request", "--cpu", "1", "--mem", "2", "--disk", "1",
+        ])
         .output()
         .expect("Failed to run request");
 

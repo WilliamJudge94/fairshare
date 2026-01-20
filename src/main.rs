@@ -109,7 +109,12 @@ fn main() {
             print_status(&totals, &allocations);
         }
 
-        Commands::Request { cpu, mem, disk, all } => {
+        Commands::Request {
+            cpu,
+            mem,
+            disk,
+            all,
+        } => {
             let totals = get_system_totals();
             let allocations = match get_user_allocations() {
                 Ok(allocs) => allocs,
@@ -220,18 +225,26 @@ fn main() {
                 disk_reserve,
                 disk_partition,
             } => {
-                if let Err(e) = admin_setup_defaults(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.clone()) {
+                if let Err(e) = admin_setup_defaults(
+                    *cpu,
+                    *mem,
+                    *disk,
+                    *cpu_reserve,
+                    *mem_reserve,
+                    *disk_reserve,
+                    disk_partition.clone(),
+                ) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Setup failed".red(), e);
                     std::process::exit(1);
                 }
-                
+
                 // Build the output message based on whether disk quotas were configured
                 let disk_msg = if let Some(d) = disk {
                     format!("Disk={}G", d).bright_yellow().to_string()
                 } else {
                     "Disk=disabled".bright_white().to_string()
                 };
-                
+
                 println!(
                     "{} Global defaults applied: {} {} {} (Reserves: {} CPUs, {}G RAM, {}G Disk)",
                     "✓".green().bold(),
@@ -242,12 +255,12 @@ fn main() {
                     format!("{}", mem_reserve).bright_cyan(),
                     format!("{}", disk_reserve).bright_cyan()
                 );
-                
+
                 if let Some(ref partition) = disk_partition {
                     println!(
-                         "{} Monitored Partition: {}",
-                         "→".bright_white(),
-                         partition.bright_cyan()
+                        "{} Monitored Partition: {}",
+                        "→".bright_white(),
+                        partition.bright_cyan()
                     );
                 }
             }
@@ -304,7 +317,8 @@ fn main() {
                     eprintln!(
                         "{} {}",
                         "⚠".bright_yellow().bold(),
-                        "This will reset all fairshare defaults and remove active user overrides!".bright_yellow()
+                        "This will reset all fairshare defaults and remove active user overrides!"
+                            .bright_yellow()
                     );
                     eprintln!("{} ", "  This will:".bright_white().bold());
                     eprintln!("    - Revert all active user allocations");
@@ -335,7 +349,15 @@ fn main() {
                     }
                 }
 
-                if let Err(e) = admin_reset(*cpu, *mem, *disk, *cpu_reserve, *mem_reserve, *disk_reserve, disk_partition.clone()) {
+                if let Err(e) = admin_reset(
+                    *cpu,
+                    *mem,
+                    *disk,
+                    *cpu_reserve,
+                    *mem_reserve,
+                    *disk_reserve,
+                    disk_partition.clone(),
+                ) {
                     eprintln!("{} {}: {}", "✗".red().bold(), "Reset failed".red(), e);
                     std::process::exit(1);
                 }

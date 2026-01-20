@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand};
 use clap::builder::RangedU64ValueParser;
+use clap::{Parser, Subcommand};
 
 /// Minimum number of CPUs that must be requested
 pub const MIN_CPU: u32 = 1;

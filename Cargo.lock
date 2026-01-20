@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "fairshare"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "clap",
  "colored",

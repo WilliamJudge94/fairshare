@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::Command;
 
 // Import constants from cli module for validation
-use crate::cli::{MAX_CPU, MAX_MEM, MAX_DISK};
+use crate::cli::{MAX_CPU, MAX_DISK, MAX_MEM};
 
 /// Get the UID of the user who invoked pkexec, or the current user if not run via pkexec.
 /// When run via pkexec, the PKEXEC_UID environment variable contains the original user's UID.
@@ -82,10 +82,17 @@ pub fn set_user_limits(cpu: u32, mem: u32, disk: u32) -> io::Result<()> {
     if let Err(e) = set_user_disk_limit(uid, disk, None) {
         if e.kind() == io::ErrorKind::Unsupported {
             // Log a single informational message when quotas are not available
-            eprintln!("{} Disk quotas not available on this filesystem (quotas may not be enabled)", "ℹ".bright_blue().bold());
+            eprintln!(
+                "{} Disk quotas not available on this filesystem (quotas may not be enabled)",
+                "ℹ".bright_blue().bold()
+            );
         } else {
             // Warn about other errors
-            eprintln!("{} Could not set disk quota: {}", "⚠".bright_yellow().bold(), e);
+            eprintln!(
+                "{} Could not set disk quota: {}",
+                "⚠".bright_yellow().bold(),
+                e
+            );
         }
         // Continue with CPU and memory limits even if disk quota fails
     }
@@ -121,16 +128,16 @@ pub fn set_user_limits(cpu: u32, mem: u32, disk: u32) -> io::Result<()> {
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "Systemd command failed"));
+        return Err(io::Error::other("Systemd command failed"));
     }
-    
+
     Ok(())
 }
 
 /// Check if disk quotas are explicitly disabled on the specified partition.
 /// Returns Ok(true) if quotas might be available (no 'noquota' option found).
 /// Returns Ok(false) only if 'noquota' is explicitly set.
-/// 
+///
 /// Note: We don't check for 'usrquota' mount option because:
 /// - XFS can have quotas enabled at mkfs time (not visible in mount options)
 /// - ext4 with quota feature doesn't require mount options
@@ -138,31 +145,32 @@ pub fn set_user_limits(cpu: u32, mem: u32, disk: u32) -> io::Result<()> {
 pub fn is_quota_enabled_on_partition(partition: &str) -> io::Result<bool> {
     // Find the device for this partition by reading /proc/mounts
     let mounts = fs::read_to_string("/proc/mounts")?;
-    
+
     // Find the best matching mount point (longest prefix match)
     let mut best_match: Option<(&str, &str)> = None; // (mount_point, mount_options)
-    
+
     for line in mounts.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() < 4 {
             continue;
         }
-        
+
         let mount_point = parts[1];
         let mount_options = parts[3];
-        
+
         // Check if this mount point is a prefix of the partition path
         // We need the longest matching prefix (e.g., /home matches /home, not /)
-        if partition == mount_point || 
-           (partition.starts_with(mount_point) && 
-            (mount_point == "/" || partition[mount_point.len()..].starts_with('/'))) {
+        if partition == mount_point
+            || (partition.starts_with(mount_point)
+                && (mount_point == "/" || partition[mount_point.len()..].starts_with('/')))
+        {
             // This is a potential match - keep it if it's longer than previous best
             if best_match.is_none() || mount_point.len() > best_match.unwrap().0.len() {
                 best_match = Some((mount_point, mount_options));
             }
         }
     }
-    
+
     // Check if the best matching mount has 'noquota' option
     // Only return false if noquota is explicitly set
     if let Some((_, mount_options)) = best_match {
@@ -174,7 +182,7 @@ pub fn is_quota_enabled_on_partition(partition: &str) -> io::Result<bool> {
         // No 'noquota' found - quotas might be available
         return Ok(true);
     }
-    
+
     // Mount point not found - assume quotas might be available
     // Let the actual quotactl call determine availability
     Ok(true)
@@ -184,7 +192,7 @@ pub fn is_quota_enabled_on_partition(partition: &str) -> io::Result<bool> {
 #[cfg(target_os = "linux")]
 fn get_block_device_for_mount(mount_point: &str) -> io::Result<Option<String>> {
     let mounts = fs::read_to_string("/proc/mounts")?;
-    
+
     // First try exact match
     for line in mounts.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -192,7 +200,7 @@ fn get_block_device_for_mount(mount_point: &str) -> io::Result<Option<String>> {
             return Ok(Some(parts[0].to_string()));
         }
     }
-    
+
     // Try finding the best matching mount point (longest prefix match)
     let mut best_match: Option<(&str, &str)> = None;
     for line in mounts.lines() {
@@ -206,7 +214,7 @@ fn get_block_device_for_mount(mount_point: &str) -> io::Result<Option<String>> {
             }
         }
     }
-    
+
     Ok(best_match.map(|(dev, _)| dev.to_string()))
 }
 
@@ -214,15 +222,15 @@ fn get_block_device_for_mount(mount_point: &str) -> io::Result<Option<String>> {
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum QuotaFilesystem {
-    Xfs,       // XFS uses its own quota interface (Q_X* commands)
-    Standard,  // ext2/ext3/ext4/btrfs use standard Linux quota (Q_* commands)
+    Xfs,      // XFS uses its own quota interface (Q_X* commands)
+    Standard, // ext2/ext3/ext4/btrfs use standard Linux quota (Q_* commands)
 }
 
 /// Get the filesystem type for a given mount point
 #[cfg(target_os = "linux")]
 fn get_filesystem_type(mount_point: &str) -> io::Result<Option<QuotaFilesystem>> {
     let mounts = fs::read_to_string("/proc/mounts")?;
-    
+
     // Find the best matching mount point (longest prefix match)
     let mut best_match: Option<(&str, &str)> = None;
     for line in mounts.lines() {
@@ -230,22 +238,25 @@ fn get_filesystem_type(mount_point: &str) -> io::Result<Option<QuotaFilesystem>>
         if parts.len() >= 3 {
             let mp = parts[1];
             let fs_type = parts[2];
-            
-            if mount_point == mp || 
-               (mount_point.starts_with(mp) && 
-                (mp == "/" || mount_point[mp.len()..].starts_with('/'))) {
+
+            if mount_point == mp
+                || (mount_point.starts_with(mp)
+                    && (mp == "/" || mount_point[mp.len()..].starts_with('/')))
+            {
                 if best_match.is_none() || mp.len() > best_match.unwrap().0.len() {
                     best_match = Some((mp, fs_type));
                 }
             }
         }
     }
-    
+
     match best_match {
         Some((_, fs_type)) => {
             match fs_type {
                 "xfs" => Ok(Some(QuotaFilesystem::Xfs)),
-                "ext2" | "ext3" | "ext4" | "btrfs" | "reiserfs" | "jfs" => Ok(Some(QuotaFilesystem::Standard)),
+                "ext2" | "ext3" | "ext4" | "btrfs" | "reiserfs" | "jfs" => {
+                    Ok(Some(QuotaFilesystem::Standard))
+                }
                 _ => Ok(None), // Unsupported filesystem
             }
         }
@@ -294,20 +305,20 @@ struct FsDiskQuota {
 #[cfg(target_os = "linux")]
 #[repr(C, packed)]
 struct DqBlk {
-    dqb_bhardlimit: u64,  // Absolute limit on disk quota blocks alloc
-    dqb_bsoftlimit: u64,  // Preferred limit on disk quota blocks
-    dqb_curspace: u64,    // Current quota block count (bytes, not blocks!)
-    dqb_ihardlimit: u64,  // Maximum number of allocated inodes
-    dqb_isoftlimit: u64,  // Preferred inode limit
-    dqb_curinodes: u64,   // Current number of allocated inodes
-    dqb_btime: u64,       // Time limit for excessive disk use
-    dqb_itime: u64,       // Time limit for excessive files
-    dqb_valid: u32,       // Bit mask of QIF_* constants
+    dqb_bhardlimit: u64, // Absolute limit on disk quota blocks alloc
+    dqb_bsoftlimit: u64, // Preferred limit on disk quota blocks
+    dqb_curspace: u64,   // Current quota block count (bytes, not blocks!)
+    dqb_ihardlimit: u64, // Maximum number of allocated inodes
+    dqb_isoftlimit: u64, // Preferred inode limit
+    dqb_curinodes: u64,  // Current number of allocated inodes
+    dqb_btime: u64,      // Time limit for excessive disk use
+    dqb_itime: u64,      // Time limit for excessive files
+    dqb_valid: u32,      // Bit mask of QIF_* constants
 }
 
 // XFS quota command constants from <linux/dqblk_xfs.h>
 #[cfg(target_os = "linux")]
-const Q_XSETQLIM: u32 = (('X' as u32) << 8) + 4;  // Set limits for XFS
+const Q_XSETQLIM: u32 = (('X' as u32) << 8) + 4; // Set limits for XFS
 #[cfg(target_os = "linux")]
 const Q_XGETQUOTA: u32 = (('X' as u32) << 8) + 3; // Get quota for XFS
 #[cfg(target_os = "linux")]
@@ -318,9 +329,9 @@ const Q_XGETNEXTQUOTA: u32 = (('X' as u32) << 8) + 9; // Get next quota entry fo
 // QCMD(cmd, type) = (cmd << 8) | (type & 0xff)
 // The 0x80 prefix indicates "new" quota format (VFS quota)
 #[cfg(target_os = "linux")]
-const Q_GETQUOTA_STD: u32 = 0x800007;   // Get limits and usage (pre-encoded)
+const Q_GETQUOTA_STD: u32 = 0x800007; // Get limits and usage (pre-encoded)
 #[cfg(target_os = "linux")]
-const Q_SETQUOTA_STD: u32 = 0x800008;   // Set limits (pre-encoded)
+const Q_SETQUOTA_STD: u32 = 0x800008; // Set limits (pre-encoded)
 #[cfg(target_os = "linux")]
 const Q_GETNEXTQUOTA_STD: u32 = 0x800009; // Get next quota entry (pre-encoded)
 
@@ -330,17 +341,17 @@ const USRQUOTA: u32 = 0;
 
 // XFS-specific constants
 #[cfg(target_os = "linux")]
-const FS_USER_QUOTA: i8 = 1;      // FS_USER_QUOTA for d_flags
+const FS_USER_QUOTA: i8 = 1; // FS_USER_QUOTA for d_flags
 #[cfg(target_os = "linux")]
-const FS_DQ_BSOFT: u16 = 1 << 2;  // blk soft limit
+const FS_DQ_BSOFT: u16 = 1 << 2; // blk soft limit
 #[cfg(target_os = "linux")]
-const FS_DQ_BHARD: u16 = 1 << 3;  // blk hard limit
+const FS_DQ_BHARD: u16 = 1 << 3; // blk hard limit
 #[cfg(target_os = "linux")]
 const FS_DQUOT_VERSION: i8 = 1;
 
 // Standard quota validity flags
 #[cfg(target_os = "linux")]
-const QIF_BLIMITS: u32 = 1;  // Both hard and soft block limits valid
+const QIF_BLIMITS: u32 = 1; // Both hard and soft block limits valid
 
 /// QCMD macro for XFS: encodes command and quota type for quotactl syscall
 /// XFS uses: (cmd << 8) | (type & 0xff)
@@ -363,30 +374,29 @@ fn qcmd_std(cmd: u32, typ: u32) -> i32 {
 #[cfg(target_os = "linux")]
 fn get_all_users_with_disk_usage(partition: &str) -> io::Result<Vec<u32>> {
     use std::ffi::CString;
-    
+
     let device = match get_block_device_for_mount(partition)? {
         Some(dev) => dev,
         None => return Ok(Vec::new()),
     };
-    
+
     let fs_type = match get_filesystem_type(partition)? {
         Some(fs) => fs,
         None => return Ok(Vec::new()), // Unsupported filesystem
     };
-    
-    let device_cstr = CString::new(device.as_bytes()).map_err(|_| {
-        io::Error::new(io::ErrorKind::InvalidInput, "Invalid device path")
-    })?;
-    
+
+    let device_cstr = CString::new(device.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid device path"))?;
+
     let mut uids = Vec::new();
     let mut next_id: u32 = 0;
-    
+
     match fs_type {
         QuotaFilesystem::Xfs => {
             // XFS: Use Q_XGETNEXTQUOTA with FsDiskQuota structure
             loop {
                 let mut dq: FsDiskQuota = unsafe { std::mem::zeroed() };
-                
+
                 let result = unsafe {
                     libc::quotactl(
                         qcmd_xfs(Q_XGETNEXTQUOTA, USRQUOTA),
@@ -395,22 +405,22 @@ fn get_all_users_with_disk_usage(partition: &str) -> io::Result<Vec<u32>> {
                         &mut dq as *mut FsDiskQuota as *mut libc::c_char,
                     )
                 };
-                
+
                 if result != 0 {
                     // ENOENT or ESRCH means no more entries
                     break;
                 }
-                
+
                 // Only include regular users (UID >= 1000)
                 if dq.d_id >= 1000 {
                     uids.push(dq.d_id);
                 }
-                
+
                 // Safety: check for u32::MAX before incrementing to avoid overflow
                 if dq.d_id == u32::MAX || uids.len() > 100000 {
                     break;
                 }
-                
+
                 // Move to next ID
                 next_id = dq.d_id + 1;
             }
@@ -418,26 +428,26 @@ fn get_all_users_with_disk_usage(partition: &str) -> io::Result<Vec<u32>> {
         QuotaFilesystem::Standard => {
             // Standard filesystems (ext4, etc.): Use Q_GETNEXTQUOTA with nextdqblk
             // Per linux/quota.h, struct nextdqblk has the ID at the END of the structure
-            
+
             // Structure for Q_GETNEXTQUOTA - matches struct nextdqblk from linux/quota.h
             // Note: The ID is at the END, not the beginning!
             #[repr(C)]
             struct NextDqBlk {
-                dqb_bhardlimit: u64,  // Absolute limit on disk quota blocks alloc
-                dqb_bsoftlimit: u64,  // Preferred limit on disk quota blocks
-                dqb_curspace: u64,    // Current quota block count (bytes!)
-                dqb_ihardlimit: u64,  // Maximum number of allocated inodes
-                dqb_isoftlimit: u64,  // Preferred inode limit
-                dqb_curinodes: u64,   // Current number of allocated inodes
-                dqb_btime: u64,       // Time limit for excessive disk use
-                dqb_itime: u64,       // Time limit for excessive files
-                dqb_valid: u32,       // Bit mask of QIF_* constants
-                dqb_id: u32,          // User/Group ID (at the END per kernel struct)
+                dqb_bhardlimit: u64, // Absolute limit on disk quota blocks alloc
+                dqb_bsoftlimit: u64, // Preferred limit on disk quota blocks
+                dqb_curspace: u64,   // Current quota block count (bytes!)
+                dqb_ihardlimit: u64, // Maximum number of allocated inodes
+                dqb_isoftlimit: u64, // Preferred inode limit
+                dqb_curinodes: u64,  // Current number of allocated inodes
+                dqb_btime: u64,      // Time limit for excessive disk use
+                dqb_itime: u64,      // Time limit for excessive files
+                dqb_valid: u32,      // Bit mask of QIF_* constants
+                dqb_id: u32,         // User/Group ID (at the END per kernel struct)
             }
-            
+
             loop {
                 let mut dq: NextDqBlk = unsafe { std::mem::zeroed() };
-                
+
                 let result = unsafe {
                     libc::quotactl(
                         qcmd_std(Q_GETNEXTQUOTA_STD, USRQUOTA),
@@ -446,23 +456,23 @@ fn get_all_users_with_disk_usage(partition: &str) -> io::Result<Vec<u32>> {
                         &mut dq as *mut NextDqBlk as *mut libc::c_char,
                     )
                 };
-                
+
                 if result != 0 {
                     // ENOENT or ESRCH means no more entries
                     break;
                 }
-                
+
                 // Only include regular users (UID >= 1000)
                 if dq.dqb_id >= 1000 {
                     uids.push(dq.dqb_id);
                 }
-                
+
                 // Move to next ID safely, avoiding overflow
                 next_id = match dq.dqb_id.checked_add(1) {
                     Some(id) => id,
                     None => break,
                 };
-                
+
                 // Safety: prevent infinite loop
                 if uids.len() > 100000 {
                     break;
@@ -470,7 +480,7 @@ fn get_all_users_with_disk_usage(partition: &str) -> io::Result<Vec<u32>> {
             }
         }
     }
-    
+
     Ok(uids)
 }
 
@@ -487,15 +497,14 @@ fn get_all_users_with_disk_usage(_partition: &str) -> io::Result<Vec<u32>> {
 #[cfg(target_os = "linux")]
 fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> io::Result<()> {
     use std::ffi::CString;
-    
+
     // Use provided partition, or fallback to config, or fallback to /home
     let partition = if let Some(p) = partition_opt {
         p.to_string()
     } else {
-        crate::system::get_configured_disk_partition()
-            .unwrap_or_else(|| "/home".to_string())
+        crate::system::get_configured_disk_partition().unwrap_or_else(|| "/home".to_string())
     };
-    
+
     // Check if quotas are explicitly disabled (noquota mount option)
     match is_quota_enabled_on_partition(&partition) {
         Ok(true) => {
@@ -513,10 +522,13 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
         }
         Err(e) => {
             // Couldn't check - probably /proc/mounts not readable, try anyway
-            eprintln!("Warning: Could not check quota status for {}: {}", partition, e);
+            eprintln!(
+                "Warning: Could not check quota status for {}: {}",
+                partition, e
+            );
         }
     }
-    
+
     // Get the block device for this mount point
     let device = match get_block_device_for_mount(&partition)? {
         Some(dev) => dev,
@@ -527,22 +539,24 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
             ));
         }
     };
-    
+
     // Get filesystem type to use appropriate quota interface
     let fs_type = match get_filesystem_type(&partition)? {
         Some(fs) => fs,
         None => {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
-                format!("Filesystem on {} does not support quotas or is not recognized", partition),
+                format!(
+                    "Filesystem on {} does not support quotas or is not recognized",
+                    partition
+                ),
             ));
         }
     };
-    
-    let device_cstr = CString::new(device.as_bytes()).map_err(|_| {
-        io::Error::new(io::ErrorKind::InvalidInput, "Invalid device path")
-    })?;
-    
+
+    let device_cstr = CString::new(device.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid device path"))?;
+
     let result = match fs_type {
         QuotaFilesystem::Xfs => {
             // XFS: Use Q_XSETQLIM with FsDiskQuota structure
@@ -558,7 +572,7 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
                         "Disk size is too large for quota calculation",
                     )
                 })?;
-            
+
             let dq = FsDiskQuota {
                 d_version: FS_DQUOT_VERSION,
                 d_flags: FS_USER_QUOTA,
@@ -586,7 +600,7 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
                 d_padding3: 0,
                 d_padding4: [0; 8],
             };
-            
+
             unsafe {
                 libc::quotactl(
                     qcmd_xfs(Q_XSETQLIM, USRQUOTA),
@@ -600,10 +614,8 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
             // Standard filesystems (ext4, etc.): Use Q_SETQUOTA with DqBlk structure
             // Standard quota uses 1KB blocks
             // 1 GB = 1024 * 1024 KB blocks
-            let kb_blocks = (disk_gb as u64)
-                .saturating_mul(1024)
-                .saturating_mul(1024);
-            
+            let kb_blocks = (disk_gb as u64).saturating_mul(1024).saturating_mul(1024);
+
             let dq = DqBlk {
                 dqb_bhardlimit: kb_blocks,
                 dqb_bsoftlimit: kb_blocks,
@@ -615,9 +627,9 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
                 dqb_itime: 0,
                 dqb_valid: QIF_BLIMITS,
             };
-            
+
             let cmd = qcmd_std(Q_SETQUOTA_STD, USRQUOTA);
-            
+
             unsafe {
                 libc::quotactl(
                     cmd,
@@ -628,15 +640,16 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
             }
         }
     };
-    
+
     if result != 0 {
         let errno = io::Error::last_os_error();
         // ESRCH means quotas not enabled/active
         // EINVAL can mean quotas not configured for this filesystem
         // ENOENT can mean quota files don't exist
-        if errno.raw_os_error() == Some(libc::ESRCH) 
+        if errno.raw_os_error() == Some(libc::ESRCH)
             || errno.raw_os_error() == Some(libc::EINVAL)
-            || errno.raw_os_error() == Some(libc::ENOENT) {
+            || errno.raw_os_error() == Some(libc::ENOENT)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 format!(
@@ -650,7 +663,7 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
             format!("quotactl failed for UID {} on {}: {}", uid, device, errno),
         ));
     }
-    
+
     Ok(())
 }
 
@@ -670,37 +683,37 @@ fn set_user_disk_limit(_uid: u32, _disk_gb: u32, _partition_opt: Option<&str>) -
 #[cfg(target_os = "linux")]
 pub fn get_user_disk_quota(uid: u32) -> io::Result<u64> {
     use std::ffi::CString;
-    
-    let partition = crate::system::get_configured_disk_partition()
-        .unwrap_or_else(|| "/home".to_string());
-    
+
+    let partition =
+        crate::system::get_configured_disk_partition().unwrap_or_else(|| "/home".to_string());
+
     // Check if quotas are enabled
     if !is_quota_enabled_on_partition(&partition).unwrap_or(false) {
         return Ok(0);
     }
-    
+
     // Get the block device
     let device = match get_block_device_for_mount(&partition)? {
         Some(dev) => dev,
         None => return Ok(0),
     };
-    
+
     // Get filesystem type
     let fs_type = match get_filesystem_type(&partition)? {
         Some(fs) => fs,
         None => return Ok(0),
     };
-    
+
     let device_cstr = match CString::new(device.as_bytes()) {
         Ok(c) => c,
         Err(_) => return Ok(0),
     };
-    
+
     match fs_type {
         QuotaFilesystem::Xfs => {
             // XFS: Use Q_XGETQUOTA with FsDiskQuota structure
             let mut dq: FsDiskQuota = unsafe { std::mem::zeroed() };
-            
+
             let result = unsafe {
                 libc::quotactl(
                     qcmd_xfs(Q_XGETQUOTA, USRQUOTA),
@@ -709,7 +722,7 @@ pub fn get_user_disk_quota(uid: u32) -> io::Result<u64> {
                     &mut dq as *mut FsDiskQuota as *mut libc::c_char,
                 )
             };
-            
+
             if result == 0 {
                 // d_blk_hardlimit is in basic blocks (512 bytes), convert to bytes
                 return Ok(dq.d_blk_hardlimit * 512);
@@ -718,7 +731,7 @@ pub fn get_user_disk_quota(uid: u32) -> io::Result<u64> {
         QuotaFilesystem::Standard => {
             // Standard filesystems: Use Q_GETQUOTA with DqBlk structure
             let mut dq: DqBlk = unsafe { std::mem::zeroed() };
-            
+
             let result = unsafe {
                 libc::quotactl(
                     qcmd_std(Q_GETQUOTA_STD, USRQUOTA),
@@ -727,14 +740,14 @@ pub fn get_user_disk_quota(uid: u32) -> io::Result<u64> {
                     &mut dq as *mut DqBlk as *mut libc::c_char,
                 )
             };
-            
+
             if result == 0 {
                 // dqb_bhardlimit is in 1KB blocks, convert to bytes
                 return Ok(dq.dqb_bhardlimit * 1024);
             }
         }
     }
-    
+
     Ok(0)
 }
 
@@ -812,8 +825,8 @@ pub fn show_user_info() -> io::Result<()> {
 
     if let Ok(bytes) = get_user_disk_quota(uid) {
         if bytes > 0 {
-             let gb = bytes as f64 / 1_000_000_000.0;
-             disk_limit = format!("{:.2} GB", gb);
+            let gb = bytes as f64 / 1_000_000_000.0;
+            disk_limit = format!("{:.2} GB", gb);
         }
     }
 
@@ -1069,7 +1082,7 @@ pub fn admin_setup_defaults(
 
     fs::create_dir_all("/etc/fairshare")?;
     let mut policy = fs::File::create("/etc/fairshare/policy.toml")?;
-    
+
     // Write policy config - disk settings only if explicitly provided
     let disk_val = disk.unwrap_or(0);
     let partition_val = disk_partition.clone().unwrap_or_default();
@@ -1099,7 +1112,7 @@ pub fn admin_setup_defaults(
                 false
             }
         };
-    
+
         if quotas_enabled {
             // Apply default disk quota to all existing users
             // We need to find users from multiple sources:
@@ -1108,27 +1121,26 @@ pub fn admin_setup_defaults(
             let mut quota_success_count = 0;
             let mut quota_fail_count = 0;
             let mut processed_uids = std::collections::HashSet::new();
-            
+
             // First, process local system users
             for user in unsafe { users::all_users() } {
                 let uid = user.uid();
-                if uid >= 1000 && uid < 65534 { // Skip nobody/nfsnobody
-                    if processed_uids.insert(uid) {
-                        match set_user_disk_limit(uid, disk_gb, Some(disk_partition)) {
-                            Ok(()) => quota_success_count += 1,
-                            Err(_) => quota_fail_count += 1,
-                        }
+                // Skip system users and nobody/nfsnobody
+                if (1000..65534).contains(&uid) && processed_uids.insert(uid) {
+                    match set_user_disk_limit(uid, disk_gb, Some(disk_partition)) {
+                        Ok(()) => quota_success_count += 1,
+                        Err(_) => quota_fail_count += 1,
                     }
                 }
             }
-            
+
             // Also scan home directories on the target partition to find AD/LDAP users
             // These users may not be enumerable via getpwent() but have home directories
             // Only scan if the partition looks like a home directory location
-            let is_home_like = disk_partition == "/home" 
+            let is_home_like = disk_partition == "/home"
                 || disk_partition.starts_with("/home/")
                 || disk_partition.contains("home");
-            
+
             if is_home_like {
                 if let Ok(entries) = std::fs::read_dir(disk_partition) {
                     for entry in entries.flatten() {
@@ -1151,7 +1163,7 @@ pub fn admin_setup_defaults(
                     }
                 }
             }
-            
+
             // Additionally, use quota enumeration to find ALL users with any disk usage
             // This catches AD/LDAP users who may have files anywhere on the partition
             if let Ok(usage_uids) = get_all_users_with_disk_usage(disk_partition) {
@@ -1165,7 +1177,7 @@ pub fn admin_setup_defaults(
                     }
                 }
             }
-            
+
             if quota_success_count > 0 {
                 println!(
                     "{} Applied disk quotas to {} existing users ({}G limit)",
@@ -1434,7 +1446,7 @@ pub fn admin_uninstall_defaults() -> io::Result<()> {
 
                     // Also revert disk quota
                     if let Ok(uid_int) = alloc.uid.parse::<u32>() {
-                         set_user_disk_limit(uid_int, 0, None).ok();
+                        set_user_disk_limit(uid_int, 0, None).ok();
                     }
                 }
                 println!();
@@ -1668,7 +1680,6 @@ pub fn admin_reset(
     disk_reserve: u32,
     disk_partition: Option<String>,
 ) -> io::Result<()> {
-
     println!(
         "{}",
         "╔═══════════════════════════════════════╗".bright_cyan()
@@ -1702,7 +1713,15 @@ pub fn admin_reset(
         "Step 2/2: Setting up new defaults...".bright_white()
     );
     println!();
-    admin_setup_defaults(cpu, mem, disk, cpu_reserve, mem_reserve, disk_reserve, disk_partition)?;
+    admin_setup_defaults(
+        cpu,
+        mem,
+        disk,
+        cpu_reserve,
+        mem_reserve,
+        disk_reserve,
+        disk_partition,
+    )?;
     println!();
 
     println!(
@@ -1720,14 +1739,14 @@ pub fn admin_reset(
         "╚═══════════════════════════════════════╝".bright_green()
     );
     println!();
-    
+
     // Build disk message based on whether disk quotas were configured
     let disk_msg = if let Some(d) = disk {
         format!("Disk={}G", d).bright_yellow().to_string()
     } else {
         "Disk=disabled".bright_white().to_string()
     };
-    
+
     println!(
         "{} New defaults: {} {} {}",
         "✓".green().bold(),
@@ -1801,7 +1820,12 @@ pub fn admin_set_user_limits(uid: u32, cpu: u32, mem: u32, disk: u32) -> io::Res
     // Try to set disk quota, but don't fail if quotas aren't enabled
     if let Err(e) = set_user_disk_limit(uid, disk, None) {
         if e.kind() != io::ErrorKind::Unsupported {
-            eprintln!("{} Could not set disk quota for user {}: {}", "⚠".bright_yellow().bold(), uid, e);
+            eprintln!(
+                "{} Could not set disk quota for user {}: {}",
+                "⚠".bright_yellow().bold(),
+                uid,
+                e
+            );
         }
         // Continue with CPU and memory limits
     }
@@ -1851,7 +1875,7 @@ mod tests {
         let mem_reserve: u32 = 2;
         let disk_reserve: u32 = 5;
         let disk_partition = "/var".to_string(); // Overwriting /home
-        
+
         let mem_bytes = (mem as u64).checked_mul(1_000_000_000).unwrap();
         let cpu_quota = cpu.checked_mul(100).unwrap();
 
@@ -2861,15 +2885,15 @@ mod tests {
         // XFS uses 512-byte basic blocks
         // 1 GB = 1024 * 1024 * 1024 bytes = 2097152 basic blocks (512 bytes each)
         // Formula: disk_gb * 1024 * 1024 * 2
-        
+
         let test_cases = vec![
-            (1u32, 2_097_152u64),      // 1 GB
-            (2u32, 4_194_304u64),      // 2 GB
-            (10u32, 20_971_520u64),    // 10 GB
-            (100u32, 209_715_200u64),  // 100 GB
+            (1u32, 2_097_152u64),        // 1 GB
+            (2u32, 4_194_304u64),        // 2 GB
+            (10u32, 20_971_520u64),      // 10 GB
+            (100u32, 209_715_200u64),    // 100 GB
             (1000u32, 2_097_152_000u64), // 1 TB
         ];
-        
+
         for (gb, expected_blocks) in test_cases {
             let blocks = (gb as u64)
                 .checked_mul(1024)
@@ -2888,7 +2912,7 @@ mod tests {
     fn test_disk_quota_gb_to_ext4_blocks_conversion() {
         // Standard filesystems (ext4, etc.) use 1KB blocks
         // 1 GB = 1024 * 1024 KB blocks = 1048576 blocks per GB
-        
+
         let test_cases = vec![
             (1u32, 1_048_576u64),        // 1 GB
             (2u32, 2_097_152u64),        // 2 GB
@@ -2896,7 +2920,7 @@ mod tests {
             (100u32, 104_857_600u64),    // 100 GB
             (1000u32, 1_048_576_000u64), // 1 TB (1000 * 1024 * 1024)
         ];
-        
+
         for (gb, expected_blocks) in test_cases {
             let blocks = (gb as u64).saturating_mul(1024).saturating_mul(1024);
             assert_eq!(
@@ -2911,7 +2935,7 @@ mod tests {
     fn test_disk_quota_max_value_no_overflow() {
         // Test that MAX_DISK doesn't cause overflow in either calculation
         use crate::cli::MAX_DISK;
-        
+
         // XFS calculation: MAX_DISK * 1024 * 1024 * 2
         let xfs_result = (MAX_DISK as u64)
             .checked_mul(1024)
@@ -2922,7 +2946,7 @@ mod tests {
             "MAX_DISK ({}) should not overflow XFS block calculation",
             MAX_DISK
         );
-        
+
         // ext4 calculation: MAX_DISK * 1024 * 1024
         let ext4_result = (MAX_DISK as u64)
             .checked_mul(1024)
@@ -2936,39 +2960,48 @@ mod tests {
 
     #[test]
     fn test_disk_quota_boundary_values() {
-        use crate::cli::{MIN_DISK, MAX_DISK};
-        
+        use crate::cli::{MAX_DISK, MIN_DISK};
+
         // Minimum disk value
         let min_xfs = (MIN_DISK as u64)
             .checked_mul(1024)
             .and_then(|v| v.checked_mul(1024))
             .and_then(|v| v.checked_mul(2));
         assert!(min_xfs.is_some(), "MIN_DISK should not overflow");
-        
+
         let min_ext4 = (MIN_DISK as u64)
             .checked_mul(1024)
             .and_then(|v| v.checked_mul(1024));
         assert!(min_ext4.is_some(), "MIN_DISK should not overflow");
-        
+
         // Maximum disk value
         let max_xfs = (MAX_DISK as u64)
             .checked_mul(1024)
             .and_then(|v| v.checked_mul(1024))
             .and_then(|v| v.checked_mul(2));
-        assert!(max_xfs.is_some(), "MAX_DISK should not overflow XFS calculation");
-        
+        assert!(
+            max_xfs.is_some(),
+            "MAX_DISK should not overflow XFS calculation"
+        );
+
         let max_ext4 = (MAX_DISK as u64)
             .checked_mul(1024)
             .and_then(|v| v.checked_mul(1024));
-        assert!(max_ext4.is_some(), "MAX_DISK should not overflow ext4 calculation");
+        assert!(
+            max_ext4.is_some(),
+            "MAX_DISK should not overflow ext4 calculation"
+        );
     }
 
     #[test]
     fn test_disk_quota_zero_value() {
         // Zero disk should result in zero blocks
-        let zero_xfs = (0u64).saturating_mul(1024).saturating_mul(1024).saturating_mul(2);
+        let zero_xfs = (0u64)
+            .saturating_mul(1024)
+            .saturating_mul(1024)
+            .saturating_mul(2);
         assert_eq!(zero_xfs, 0, "Zero GB should equal zero XFS blocks");
-        
+
         let zero_ext4 = (0u64).saturating_mul(1024).saturating_mul(1024);
         assert_eq!(zero_ext4, 0, "Zero GB should equal zero ext4 blocks");
     }
@@ -2978,11 +3011,11 @@ mod tests {
     fn test_qcmd_xfs_encoding() {
         // Test XFS quota command encoding
         // QCMD(cmd, type) = (cmd << 8) | (type & 0xff)
-        
+
         // Q_XSETQLIM = (('X' as u32) << 8) + 4 = 0x5804
         let q_xsetqlim = (('X' as u32) << 8) + 4;
         let usrquota = 0u32;
-        
+
         let encoded = super::qcmd_xfs(q_xsetqlim, usrquota);
         // Expected: (0x5804 << 8) | 0 = 0x580400
         let expected = ((q_xsetqlim << 8) | (usrquota & 0xff)) as i32;
@@ -2994,10 +3027,10 @@ mod tests {
     fn test_qcmd_std_encoding() {
         // Test standard quota command encoding
         // QCMD(cmd, type) = (cmd << 8) | (type & 0xff)
-        
+
         let q_setquota_std = 0x800008u32;
         let usrquota = 0u32;
-        
+
         let encoded = super::qcmd_std(q_setquota_std, usrquota);
         // Expected: (0x800008 << 8) | 0 = 0x80000800
         let expected = ((q_setquota_std << 8) | (usrquota & 0xff)) as i32;
@@ -3009,25 +3042,23 @@ mod tests {
     fn test_is_quota_enabled_parses_noquota() {
         // Test that noquota mount option is detected
         // This tests the parsing logic without actual filesystem access
-        
+
         let mount_options_with_noquota = "rw,relatime,noquota";
         let mount_options_without_noquota = "rw,relatime,quota,usrquota";
         let mount_options_empty = "";
-        
+
         // Test noquota detection in mount options string
         let has_noquota = mount_options_with_noquota
             .split(',')
             .any(|opt| opt == "noquota");
         assert!(has_noquota, "Should detect noquota option");
-        
+
         let has_noquota = mount_options_without_noquota
             .split(',')
             .any(|opt| opt == "noquota");
         assert!(!has_noquota, "Should not detect noquota when not present");
-        
-        let has_noquota = mount_options_empty
-            .split(',')
-            .any(|opt| opt == "noquota");
+
+        let has_noquota = mount_options_empty.split(',').any(|opt| opt == "noquota");
         assert!(!has_noquota, "Empty options should not have noquota");
     }
 
@@ -3035,23 +3066,27 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn test_filesystem_type_detection_logic() {
         // Test filesystem type classification logic
-        
+
         let xfs_types = vec!["xfs"];
         let standard_types = vec!["ext2", "ext3", "ext4", "btrfs", "reiserfs", "jfs"];
         let unsupported_types = vec!["ntfs", "vfat", "tmpfs", "proc", "sysfs"];
-        
+
         for fs in xfs_types {
             let is_xfs = fs == "xfs";
             assert!(is_xfs, "{} should be detected as XFS", fs);
         }
-        
+
         for fs in standard_types {
             let is_standard = matches!(fs, "ext2" | "ext3" | "ext4" | "btrfs" | "reiserfs" | "jfs");
-            assert!(is_standard, "{} should be detected as standard quota filesystem", fs);
+            assert!(
+                is_standard,
+                "{} should be detected as standard quota filesystem",
+                fs
+            );
         }
-        
+
         for fs in unsupported_types {
-            let is_supported = fs == "xfs" 
+            let is_supported = fs == "xfs"
                 || matches!(fs, "ext2" | "ext3" | "ext4" | "btrfs" | "reiserfs" | "jfs");
             assert!(!is_supported, "{} should be detected as unsupported", fs);
         }
@@ -3061,22 +3096,22 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn test_mount_point_matching_logic() {
         // Test the mount point matching algorithm used in quota functions
-        
+
         // Simulate mount point matching for /home/user/data
         let target = "/home/user/data";
         let mounts = vec![
-            ("/", true),           // Matches (root always matches)
-            ("/home", true),       // Matches (prefix)
-            ("/home/user", true),  // Matches (longer prefix)
+            ("/", true),               // Matches (root always matches)
+            ("/home", true),           // Matches (prefix)
+            ("/home/user", true),      // Matches (longer prefix)
             ("/home/user/data", true), // Matches (exact)
-            ("/var", false),       // Doesn't match
-            ("/homealt", false),   // Doesn't match (different path)
+            ("/var", false),           // Doesn't match
+            ("/homealt", false),       // Doesn't match (different path)
         ];
-        
+
         for (mount_point, should_match) in mounts {
-            let matches = target == mount_point || 
-                (target.starts_with(mount_point) && 
-                 (mount_point == "/" || target[mount_point.len()..].starts_with('/')));
+            let matches = target == mount_point
+                || (target.starts_with(mount_point)
+                    && (mount_point == "/" || target[mount_point.len()..].starts_with('/')));
             assert_eq!(
                 matches, should_match,
                 "Mount point '{}' match for target '{}' should be {}",
@@ -3089,24 +3124,24 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn test_longest_prefix_match_selection() {
         // Test that longest matching mount point is selected
-        
+
         let target = "/home/user/data";
         let mount_points = vec!["/", "/home", "/home/user"];
-        
+
         let mut best_match: Option<&str> = None;
         for mp in &mount_points {
-            let matches = target == *mp || 
-                (target.starts_with(*mp) && 
-                 (*mp == "/" || target[mp.len()..].starts_with('/')));
+            let matches = target == *mp
+                || (target.starts_with(*mp) && (*mp == "/" || target[mp.len()..].starts_with('/')));
             if matches {
                 if best_match.is_none() || mp.len() > best_match.unwrap().len() {
                     best_match = Some(mp);
                 }
             }
         }
-        
+
         assert_eq!(
-            best_match, Some("/home/user"),
+            best_match,
+            Some("/home/user"),
             "Should select longest matching mount point"
         );
     }
@@ -3121,13 +3156,13 @@ mod tests {
         let mem_reserve: u32 = 2;
         let disk_reserve: u32 = 5;
         let disk_partition = "/mnt/data".to_string();
-        
+
         let max_cpu_cap = cpu.checked_mul(10).unwrap();
         let expected_policy = format!(
             "[defaults]\ncpu = {}\nmem = {}\ndisk = {}\ncpu_reserve = {}\nmem_reserve = {}\ndisk_reserve = {}\ndisk_partition = \"{}\"\n\n[max_caps]\ncpu = {}\nmem = {}\ndisk = {}\n",
             cpu, mem, disk, cpu_reserve, mem_reserve, disk_reserve, disk_partition, max_cpu_cap, mem, disk
         );
-        
+
         assert!(expected_policy.contains("disk = 10"));
         assert!(expected_policy.contains("disk_reserve = 5"));
         assert!(expected_policy.contains("disk_partition = \"/mnt/data\""));
@@ -3138,18 +3173,18 @@ mod tests {
         // Test config format when disk is not specified (disk = 0)
         let cpu: u32 = 2;
         let mem: u32 = 4;
-        let disk: u32 = 0;  // No disk quota
+        let disk: u32 = 0; // No disk quota
         let cpu_reserve: u32 = 1;
         let mem_reserve: u32 = 2;
         let disk_reserve: u32 = 0;
         let disk_partition = "".to_string();
-        
+
         let max_cpu_cap = cpu.checked_mul(10).unwrap();
         let expected_policy = format!(
             "[defaults]\ncpu = {}\nmem = {}\ndisk = {}\ncpu_reserve = {}\nmem_reserve = {}\ndisk_reserve = {}\ndisk_partition = \"{}\"\n\n[max_caps]\ncpu = {}\nmem = {}\ndisk = {}\n",
             cpu, mem, disk, cpu_reserve, mem_reserve, disk_reserve, disk_partition, max_cpu_cap, mem, disk
         );
-        
+
         assert!(expected_policy.contains("disk = 0"));
         assert!(expected_policy.contains("disk_reserve = 0"));
         assert!(expected_policy.contains("disk_partition = \"\""));
@@ -3159,10 +3194,10 @@ mod tests {
     fn test_disk_quota_input_validation_exceeds_max() {
         // Test that disk values exceeding MAX_DISK are rejected
         use crate::cli::MAX_DISK;
-        
+
         let result = super::set_user_limits(2, 4, MAX_DISK + 1);
         assert!(result.is_err(), "Should reject disk exceeding MAX_DISK");
-        
+
         if let Err(e) = result {
             let error_msg = format!("{}", e);
             assert!(
@@ -3176,11 +3211,11 @@ mod tests {
     #[test]
     fn test_disk_quota_valid_range() {
         // Test that valid disk values pass input validation
-        use crate::cli::{MIN_DISK, MAX_DISK};
-        
+        use crate::cli::{MAX_DISK, MIN_DISK};
+
         // These should NOT error on input validation
         // (they may fail on quotactl execution, but that's okay for this test)
-        
+
         // Minimum value
         let min_result = super::set_user_limits(1, 1, MIN_DISK);
         if let Err(e) = min_result {
@@ -3191,7 +3226,7 @@ mod tests {
                 error_msg
             );
         }
-        
+
         // Maximum value
         let max_result = super::set_user_limits(1, 1, MAX_DISK);
         if let Err(e) = max_result {
@@ -3209,7 +3244,7 @@ mod tests {
     fn test_set_user_disk_limit_nonexistent_partition() {
         // Test that non-existent partition is handled gracefully
         let result = super::set_user_disk_limit(1000, 10, Some("/nonexistent/partition"));
-        
+
         // Should error with NotFound or similar
         assert!(result.is_err(), "Should fail for non-existent partition");
     }
@@ -3219,7 +3254,7 @@ mod tests {
     fn test_set_user_disk_limit_non_linux() {
         // On non-Linux platforms, disk quotas should return Unsupported
         let result = super::set_user_disk_limit(1000, 10, Some("/home"));
-        
+
         assert!(result.is_err(), "Should fail on non-Linux");
         if let Err(e) = result {
             assert_eq!(
@@ -3235,10 +3270,10 @@ mod tests {
     fn test_get_user_disk_quota_default_zero() {
         // Test that get_user_disk_quota returns 0 when quotas not configured
         // This tests the fallback behavior
-        
+
         // Use a non-existent UID to avoid affecting real quotas
         let result = super::get_user_disk_quota(999999);
-        
+
         // Should either succeed with 0 or fail gracefully
         match result {
             Ok(quota) => {
@@ -3257,9 +3292,12 @@ mod tests {
         let total_disk_gb = 100u32;
         let disk_reserve_gb = 10u32;
         let available_gb = total_disk_gb.saturating_sub(disk_reserve_gb);
-        
-        assert_eq!(available_gb, 90, "Available disk should be total minus reserve");
-        
+
+        assert_eq!(
+            available_gb, 90,
+            "Available disk should be total minus reserve"
+        );
+
         // Test with reserve larger than total (edge case)
         let available_gb = 50u32.saturating_sub(100u32);
         assert_eq!(available_gb, 0, "Should not underflow when reserve > total");
@@ -3275,10 +3313,7 @@ mod tests {
             // FsDiskQuota should be 200 bytes per XFS quota.h
             // This test ensures the structure definition matches kernel expectations
             let size = size_of::<super::FsDiskQuota>();
-            assert!(
-                size > 0,
-                "FsDiskQuota should have non-zero size"
-            );
+            assert!(size > 0, "FsDiskQuota should have non-zero size");
             // Note: exact size check removed as it depends on alignment
         }
     }
@@ -3292,7 +3327,7 @@ mod tests {
             let size = size_of::<super::DqBlk>();
             // DqBlk should be 72 bytes (8 u64s + 1 u32) when packed
             assert!(
-                size <= 80,  // Allow some alignment padding
+                size <= 80, // Allow some alignment padding
                 "DqBlk should be reasonably sized, got {} bytes",
                 size
             );
