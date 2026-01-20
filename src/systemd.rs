@@ -207,10 +207,10 @@ fn get_block_device_for_mount(mount_point: &str) -> io::Result<Option<String>> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let mp = parts[1];
-            if mount_point.starts_with(mp) {
-                if best_match.is_none() || mp.len() > best_match.unwrap().1.len() {
-                    best_match = Some((parts[0], mp));
-                }
+            if mount_point.starts_with(mp)
+                && (best_match.is_none() || mp.len() > best_match.unwrap().1.len())
+            {
+                best_match = Some((parts[0], mp));
             }
         }
     }
@@ -239,13 +239,12 @@ fn get_filesystem_type(mount_point: &str) -> io::Result<Option<QuotaFilesystem>>
             let mp = parts[1];
             let fs_type = parts[2];
 
-            if mount_point == mp
+            if (mount_point == mp
                 || (mount_point.starts_with(mp)
-                    && (mp == "/" || mount_point[mp.len()..].starts_with('/')))
+                    && (mp == "/" || mount_point[mp.len()..].starts_with('/'))))
+                && (best_match.is_none() || mp.len() > best_match.unwrap().0.len())
             {
-                if best_match.is_none() || mp.len() > best_match.unwrap().0.len() {
-                    best_match = Some((mp, fs_type));
-                }
+                best_match = Some((mp, fs_type));
             }
         }
     }
@@ -658,10 +657,10 @@ fn set_user_disk_limit(uid: u32, disk_gb: u32, partition_opt: Option<&str>) -> i
                 ),
             ));
         }
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("quotactl failed for UID {} on {}: {}", uid, device, errno),
-        ));
+        return Err(io::Error::other(format!(
+            "quotactl failed for UID {} on {}: {}",
+            uid, device, errno
+        )));
     }
 
     Ok(())
