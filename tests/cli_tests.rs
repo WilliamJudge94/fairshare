@@ -496,6 +496,35 @@ fn test_request_maximum_valid_values() {
 }
 
 #[test]
+fn test_request_backwards_compatibility_without_disk() {
+    // Test that request works without --disk for backwards compatibility
+    // This ensures users can run `fairshare request --cpu 4 --mem 8` without specifying --disk
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "4", "--mem", "8"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Should either succeed or fail with resource/permission issues, but NOT require --disk
+    assert!(
+        output.status.success()
+            || stderr.contains("exceeds available")
+            || stderr.contains("resource")
+            || stderr.contains("Interactive authentication required")
+            || stderr.contains("Failed to set user limits")
+            || stderr.contains("Failed to get user allocations"),
+        "Request without --disk should not require disk parameter, got: {}",
+        stderr
+    );
+    // Should NOT complain about missing --disk
+    assert!(
+        !stderr.contains("required") || !stderr.contains("disk"),
+        "Should not require --disk parameter for backwards compatibility: {}",
+        stderr
+    );
+}
+
+#[test]
 fn test_request_boundary_cpu_1() {
     // Test lower boundary: CPU = 1 (minimum valid)
     let output = Command::new("cargo")

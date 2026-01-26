@@ -1159,13 +1159,18 @@ pub fn admin_setup_defaults(
             // Also scan home directories on the target partition to find AD/LDAP users
             // These users may not be enumerable via getpwent() but have home directories
             // Only scan if the partition looks like a home directory location
+            //
+            // Performance note: Directory scanning is limited to MAX_DIR_ENTRIES (10000) to prevent
+            // excessive processing time on systems with many users. This should be sufficient for
+            // most environments while preventing runaway loops.
             let is_home_like = disk_partition == "/home"
                 || disk_partition.starts_with("/home/")
                 || disk_partition.contains("home");
 
+            const MAX_DIR_ENTRIES: usize = 10000;
             if is_home_like {
                 if let Ok(entries) = std::fs::read_dir(disk_partition) {
-                    for entry in entries.flatten() {
+                    for entry in entries.take(MAX_DIR_ENTRIES).flatten() {
                         if let Ok(metadata) = entry.metadata() {
                             // Get the owner UID of the home directory
                             #[cfg(unix)]
