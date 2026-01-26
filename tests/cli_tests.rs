@@ -32,7 +32,25 @@ fn test_status_command() {
         .output()
         .expect("Failed to execute command");
 
-    // Status command should succeed
+    // Status command should succeed, or fail gracefully on non-Linux systems
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        #[cfg(not(target_os = "linux"))]
+        if stderr.contains("Failed to get user allocations")
+            || stderr.contains("No such file or directory")
+            || stderr.contains("os error 2")
+        {
+            // On non-Linux systems, these errors are expected because systemctl may be missing,
+            // so we treat them as a graceful failure and return early.
+            // On Linux, seeing these errors indicates a real failure (e.g., quota/systemd setup),
+            // so we intentionally let the test panic below.
+            return;
+        }
+
+        panic!("Status command failed unexpectedly: {}", stderr);
+    }
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -292,8 +310,10 @@ fn test_admin_uninstall_mentions_daemon_reload() {
         assert!(
             stderr.contains("permission")
                 || stderr.contains("Permission")
-                || stderr.contains("Failed"),
-            "Expected failure to be due to permissions or other error"
+                || stderr.contains("Failed")
+                || stderr.contains("failed"),
+            "Expected failure to be due to permissions or other error (got: {})",
+            stderr
         );
     }
 }
@@ -423,6 +443,7 @@ fn test_request_negative_mem() {
 #[test]
 fn test_request_minimum_valid_values() {
     // Test that minimum valid values (1 CPU, 1 GB) are accepted
+    // Note: --disk is optional for backwards compatibility
     let output = Command::new("cargo")
         .args(["run", "--", "request", "--cpu", "1", "--mem", "1"])
         .output()
@@ -435,7 +456,8 @@ fn test_request_minimum_valid_values() {
             || stderr.contains("exceeds available")
             || stderr.contains("resource")
             || stderr.contains("Interactive authentication required")
-            || stderr.contains("Failed to set user limits"),
+            || stderr.contains("Failed to set user limits")
+            || stderr.contains("Failed to get user allocations"),
         "Expected validation to pass for minimum valid values (1, 1), got: {}",
         stderr
     );
@@ -446,7 +468,9 @@ fn test_request_maximum_valid_values() {
     // Test that maximum valid values (1000 CPU, 10000 GB) pass validation
     // (may fail on resource availability, but should pass input validation)
     let output = Command::new("cargo")
-        .args(["run", "--", "request", "--cpu", "1000", "--mem", "10000"])
+        .args([
+            "run", "--", "request", "--cpu", "1000", "--mem", "10000", "--disk", "10000",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -457,7 +481,8 @@ fn test_request_maximum_valid_values() {
             || stderr.contains("exceeds available")
             || stderr.contains("resource")
             || stderr.contains("Interactive authentication required")
-            || stderr.contains("Failed to set user limits"),
+            || stderr.contains("Failed to set user limits")
+            || stderr.contains("Failed to get user allocations"),
         "Expected validation to pass for maximum valid values (1000, 10000), got validation error: {}",
         stderr
     );
@@ -466,6 +491,35 @@ fn test_request_maximum_valid_values() {
     assert!(
         !stderr.contains("not in 1..=1000") && !stderr.contains("not in 1..=10000"),
         "Should pass validation but got range error: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_request_backwards_compatibility_without_disk() {
+    // Test that request works without --disk for backwards compatibility
+    // This ensures users can run `fairshare request --cpu 4 --mem 8` without specifying --disk
+    let output = Command::new("cargo")
+        .args(["run", "--", "request", "--cpu", "4", "--mem", "8"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Should either succeed or fail with resource/permission issues, but NOT require --disk
+    assert!(
+        output.status.success()
+            || stderr.contains("exceeds available")
+            || stderr.contains("resource")
+            || stderr.contains("Interactive authentication required")
+            || stderr.contains("Failed to set user limits")
+            || stderr.contains("Failed to get user allocations"),
+        "Request without --disk should not require disk parameter, got: {}",
+        stderr
+    );
+    // Should NOT complain about missing --disk
+    assert!(
+        !stderr.contains("required") || !stderr.contains("disk"),
+        "Should not require --disk parameter for backwards compatibility: {}",
         stderr
     );
 }

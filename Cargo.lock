@@ -218,12 +218,13 @@ dependencies = [
 
 [[package]]
 name = "fairshare"
-version = "0.6.0"
+version = "0.10.0"
 dependencies = [
  "clap",
  "colored",
  "comfy-table",
  "humansize",
+ "libc",
  "serde",
  "serial_test",
  "sysinfo",

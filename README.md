@@ -11,8 +11,8 @@ On shared Linux systems, one user running a heavy workload can consume all avail
 ### The Solution
 
 fairshare allocates resources fairly across all users:
-- **Default**: Each user gets 1 CPU core and 2GB RAM by default
-- **Reserved**: System reserves resources for OS and background processes (2 CPUs, 4GB RAM by default)
+- **Default**: Each user gets 1 CPU core, 2GB RAM, and optional disk quota by default
+- **Reserved**: System reserves resources for OS and background processes (2 CPUs, 4GB RAM, 4GB disk by default)
 - **On-demand**: Users can request more resources when needed (up to 1000 CPU cores and 10000 GB RAM)
 - **Automatic**: The system grants requests only if resources are truly available
 - **Fair**: No user can monopolize the entire system
@@ -177,23 +177,55 @@ fairshare release
 > **Note:** Admin commands must be run with `sudo`
 
 #### Set Default Limits and System Reserves
-Configure the default CPU and memory allocation for all users when they first log in, plus system reserves. This also installs PolicyKit policies required for passwordless user operations.
+Configure the default CPU, memory, and disk allocation for all users when they first log in, plus system reserves. This also installs PolicyKit policies required for passwordless user operations.
 
 ```bash
-# Setup with defaults (1 CPU, 2GB per user, 2 CPU reserve, 4GB RAM reserve)
+# Setup with defaults (1 CPU, 2GB RAM per user, 2 CPU reserve, 4GB RAM reserve)
 sudo fairshare admin setup --cpu 1 --mem 2 --cpu-reserve 2 --mem-reserve 4
 
 # Or use custom values
 sudo fairshare admin setup --cpu 2 --mem 4 --cpu-reserve 4 --mem-reserve 8
+
+# With optional disk quota on a specific partition
+sudo fairshare admin setup --cpu 1 --mem 2 --disk 10 --disk-partition /home
+
+# Disk quota on a different partition (e.g., /data, /mnt)
+sudo fairshare admin setup --cpu 1 --mem 2 --disk 10 --disk-partition /mnt
+
+# Disk quota with custom reserve
+sudo fairshare admin setup --cpu 1 --mem 2 --disk 10 --disk-partition /home --disk-reserve 5
 ```
 
-**What Reserves Do:**
-System reserves ensure that CPU and memory are always available for the operating system and background processes. Users can only allocate up to (Total - Reserved) resources.
+**Disk Quota Options (Optional):**
 
-Example on an 8 CPU, 16GB RAM system:
-- Total: 8 CPUs, 16GB
-- Reserved: 2 CPUs, 4GB (default)
-- Available for users: 6 CPUs, 12GB
+Disk quotas are **optional**. If you don't specify `--disk` and `--disk-partition`, fairshare will only manage CPU and memory limits.
+
+- `--disk <GB>`: Set default disk quota per user in gigabytes (1-10000 GB)
+- `--disk-partition <path>`: Mount point where quotas will be enforced (e.g., `/home`, `/mnt`, `/data`)
+- `--disk-reserve <GB>`: Reserve disk space for system use (default: 4GB)
+
+> **Note:** Both `--disk` and `--disk-partition` must be specified together to enable disk quotas.
+
+**Disk Quota Requirements:**
+> **Important:** Disk quotas require filesystem-level quota support to be enabled.
+
+For quotas to work, you must:
+1. Enable quotas in `/etc/fstab` with mount options like `usrquota` or `quota`
+2. For ext4: Enable the quota feature with `tune2fs -O quota /dev/sdX` and run `quotaon`
+3. For XFS: Quotas are typically enabled at mount time with `uquota` option
+
+**Tested Filesystems:**
+- **XFS** - Fully tested and working
+- **ext4** - Fully tested and working
+- **btrfs, other filesystems** - May work but not yet tested (low confidence)
+
+**What Reserves Do:**
+System reserves ensure that CPU, memory, and disk space are always available for the operating system and background processes. Users can only allocate up to (Total - Reserved) resources.
+
+Example on an 8 CPU, 16GB RAM, 100GB disk system:
+- Total: 8 CPUs, 16GB RAM, 100GB disk
+- Reserved: 2 CPUs, 4GB RAM, 4GB disk (default)
+- Available for users: 6 CPUs, 12GB RAM, 96GB disk
 
 ![Admin Setup](static/root-admin-setup.png)
 
@@ -202,13 +234,13 @@ Administrators can directly set resource allocations for any user on the system,
 
 ```bash
 # Set resources by username
-sudo fairshare admin set-user --user alice --cpu 4 --mem 8
+sudo fairshare admin set-user --user alice --cpu 4 --mem 8 --disk 8
 
 # Set resources by UID
-sudo fairshare admin set-user --user 1000 --cpu 2 --mem 4
+sudo fairshare admin set-user --user 1000 --cpu 2 --mem 4 --disk 8
 
 # Force set without confirmation prompt (for scripts)
-sudo fairshare admin set-user --user bob --cpu 10 --mem 20 --force
+sudo fairshare admin set-user --user bob --cpu 10 --mem 20 --disk 40 --force
 ```
 
 **Key Features:**
@@ -312,6 +344,37 @@ After running `sudo fairshare admin setup`, systemd needs to reload:
 ```bash
 sudo systemctl daemon-reload
 ```
+
+### Disk quota fails or shows warnings
+Disk quotas require filesystem-level support. If you see quota-related warnings:
+
+1. **Check if quotas are enabled in fstab:**
+   ```bash
+   cat /etc/fstab | grep -E 'usrquota|quota|uquota'
+   ```
+
+2. **For ext4 filesystems:**
+   ```bash
+   # Enable quota feature (unmount first if possible, or use -f)
+   sudo tune2fs -O quota /dev/sdX
+   
+   # Turn on quotas
+   sudo quotaon /mount/point
+   ```
+
+3. **For XFS filesystems:**
+   XFS typically needs quotas enabled at mount time. Add `uquota` to fstab:
+   ```
+   /dev/sdX  /home  xfs  defaults,uquota  0 0
+   ```
+   Then remount: `sudo mount -o remount /home`
+
+4. **Verify quotas are working:**
+   ```bash
+   sudo repquota -u /mount/point
+   ```
+
+**Note:** fairshare has been tested with XFS and ext4 filesystems. Other filesystems (btrfs, etc.) may work but are not yet verified.
 
 ## Quick testing tip
 

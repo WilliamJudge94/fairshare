@@ -18,21 +18,29 @@ struct PolicyDefaults {
     cpu: u32,
     #[allow(dead_code)]
     mem: u32,
+    #[allow(dead_code)]
+    disk: u32,
     #[serde(default)]
     cpu_reserve: u32,
     #[serde(default)]
     mem_reserve: u32,
+    #[serde(default)]
+    disk_reserve: u32,
+    #[serde(default)]
+    disk_partition: Option<String>,
 }
 
 pub struct SystemTotals {
     pub total_mem_gb: f64,
     pub total_cpu: usize,
+    pub total_disk_gb: f64,
 }
 
 pub struct UserAlloc {
     pub uid: String,
     pub cpu_quota: f64,
     pub mem_bytes: u64,
+    pub disk_bytes: u64,
 }
 
 /// Read the system CPU reserve from policy.toml
@@ -63,6 +71,33 @@ pub fn get_system_mem_reserve() -> u32 {
     }
 }
 
+/// Read the system disk reserve from policy.toml
+/// Returns 0 if the file doesn't exist or can't be read
+pub fn get_system_disk_reserve() -> u32 {
+    let policy_path = "/etc/fairshare/policy.toml";
+
+    match fs::read_to_string(policy_path) {
+        Ok(contents) => match toml::from_str::<PolicyConfig>(&contents) {
+            Ok(config) => config.defaults.disk_reserve,
+            Err(_) => 0,
+        },
+        Err(_) => 0,
+    }
+}
+
+/// Read the configured disk partition from policy.toml. Defaults to /home.
+pub fn get_configured_disk_partition() -> Option<String> {
+    let policy_path = "/etc/fairshare/policy.toml";
+
+    match fs::read_to_string(policy_path) {
+        Ok(contents) => match toml::from_str::<PolicyConfig>(&contents) {
+            Ok(config) => config.defaults.disk_partition,
+            Err(_) => None,
+        },
+        Err(_) => None,
+    }
+}
+
 pub fn get_system_totals() -> SystemTotals {
     let mut sys = System::new_all();
     sys.refresh_memory();
@@ -72,15 +107,40 @@ pub fn get_system_totals() -> SystemTotals {
     let total_mem_gb = sys.total_memory() as f64 / 1_000_000_000.0; // 10^9 (decimal GB)
     let total_cpu = sys.cpus().len();
 
+    // Get total size of configured partition (defaults to /home), or root if not found
+    let disk_partition = get_configured_disk_partition().unwrap_or_else(|| "/home".to_string());
+
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let total_disk_gb = disks
+        .iter()
+        .find(|d| d.mount_point() == std::path::Path::new(&disk_partition))
+        .or_else(|| {
+            disks
+                .iter()
+                .find(|d| d.mount_point() == std::path::Path::new("/"))
+        })
+        .map(|d| d.total_space() as f64 / 1_000_000_000.0)
+        .unwrap_or(0.0);
+
     SystemTotals {
         total_mem_gb,
         total_cpu,
+        total_disk_gb,
     }
 }
 
 pub fn get_user_allocations() -> io::Result<Vec<UserAlloc>> {
     // Query systemd directly for user allocations
-    get_user_allocations_from_systemd()
+    let mut allocations = get_user_allocations_from_systemd()?;
+
+    // Enrich with disk quotas
+    for alloc in &mut allocations {
+        if let Ok(uid_int) = alloc.uid.parse::<u32>() {
+            alloc.disk_bytes = crate::systemd::get_user_disk_quota(uid_int).unwrap_or(0);
+        }
+    }
+
+    Ok(allocations)
 }
 
 // Get allocations by querying systemd directly
@@ -145,6 +205,9 @@ fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
         let mut mem_bytes = 0;
         let mut cpu_quota = 0.0;
 
+        let uid_val = uid.parse::<u32>().unwrap_or(0);
+        let disk_bytes = crate::systemd::get_user_disk_quota(uid_val).unwrap_or(0);
+
         for l in out.lines() {
             if l.starts_with("MemoryMax=") {
                 if let Some(value_str) = l.strip_prefix("MemoryMax=") {
@@ -166,6 +229,7 @@ fn get_user_allocations_from_systemd() -> io::Result<Vec<UserAlloc>> {
             uid,
             cpu_quota,
             mem_bytes,
+            disk_bytes,
         });
     }
 
@@ -201,10 +265,11 @@ pub fn calculate_available_resources(
     totals: &SystemTotals,
     allocations: &[UserAlloc],
     requesting_user_uid: Option<&str>,
-) -> (u32, u32) {
+) -> (u32, u32, u32) {
     // Get system reserves
     let cpu_reserve = get_system_cpu_reserve() as f64;
     let mem_reserve = get_system_mem_reserve() as f64;
+    let disk_reserve = get_system_disk_reserve() as f64;
 
     // Calculate currently used resources from all users
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
@@ -212,25 +277,36 @@ pub fn calculate_available_resources(
         .iter()
         .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
         .sum();
+    let used_disk: f64 = allocations
+        .iter()
+        .map(|a| a.disk_bytes as f64 / 1_000_000_000.0)
+        .sum();
 
     // If the requesting user already has an allocation, subtract it from used resources
     // This allows us to check if the NET INCREASE fits, not the entire new request
-    let (adjusted_used_cpu, adjusted_used_mem) = if let Some(uid) = requesting_user_uid {
-        let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
-        if let Some(alloc) = current_user_alloc {
-            let current_cpu = alloc.cpu_quota / 100.0;
-            let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
-            (used_cpu - current_cpu, used_mem - current_mem)
+    let (adjusted_used_cpu, adjusted_used_mem, adjusted_used_disk) =
+        if let Some(uid) = requesting_user_uid {
+            let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
+            if let Some(alloc) = current_user_alloc {
+                let current_cpu = alloc.cpu_quota / 100.0;
+                let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
+                let current_disk = alloc.disk_bytes as f64 / 1_000_000_000.0;
+                (
+                    used_cpu - current_cpu,
+                    used_mem - current_mem,
+                    used_disk - current_disk,
+                )
+            } else {
+                (used_cpu, used_mem, used_disk)
+            }
         } else {
-            (used_cpu, used_mem)
-        }
-    } else {
-        (used_cpu, used_mem)
-    };
+            (used_cpu, used_mem, used_disk)
+        };
 
     // Subtract the system reserves from available resources
     let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
     let available_mem = totals.total_mem_gb - adjusted_used_mem - mem_reserve;
+    let available_disk = totals.total_disk_gb - adjusted_used_disk - disk_reserve;
 
     // Return as u32, ensuring we don't return negative values
     let available_cpu_u32 = if available_cpu > 0.0 {
@@ -243,8 +319,13 @@ pub fn calculate_available_resources(
     } else {
         0
     };
+    let available_disk_u32 = if available_disk > 0.0 {
+        available_disk.floor() as u32
+    } else {
+        0
+    };
 
-    (available_cpu_u32, available_mem_u32)
+    (available_cpu_u32, available_mem_u32, available_disk_u32)
 }
 
 pub fn check_request(
@@ -252,11 +333,13 @@ pub fn check_request(
     allocations: &[UserAlloc],
     req_cpu: u32,
     req_mem_gb: &str,
+    req_disk_gb: u32,
     requesting_user_uid: Option<&str>,
 ) -> bool {
     // Get system reserves
     let cpu_reserve = get_system_cpu_reserve() as f64;
     let mem_reserve = get_system_mem_reserve() as f64;
+    let disk_reserve = get_system_disk_reserve() as f64;
 
     // Calculate currently used resources from all users
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
@@ -264,28 +347,40 @@ pub fn check_request(
         .iter()
         .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
         .sum();
+    let used_disk: f64 = allocations
+        .iter()
+        .map(|a| a.disk_bytes as f64 / 1_000_000_000.0)
+        .sum();
 
     // If the requesting user already has an allocation, subtract it from used resources
     // This allows us to check if the NET INCREASE fits, not the entire new request
-    let (adjusted_used_cpu, adjusted_used_mem) = if let Some(uid) = requesting_user_uid {
-        let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
-        if let Some(alloc) = current_user_alloc {
-            let current_cpu = alloc.cpu_quota / 100.0;
-            let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
-            (used_cpu - current_cpu, used_mem - current_mem)
+    let (adjusted_used_cpu, adjusted_used_mem, adjusted_used_disk) =
+        if let Some(uid) = requesting_user_uid {
+            let current_user_alloc = allocations.iter().find(|a| a.uid == uid);
+            if let Some(alloc) = current_user_alloc {
+                let current_cpu = alloc.cpu_quota / 100.0;
+                let current_mem = alloc.mem_bytes as f64 / 1_000_000_000.0;
+                let current_disk = alloc.disk_bytes as f64 / 1_000_000_000.0;
+                (
+                    used_cpu - current_cpu,
+                    used_mem - current_mem,
+                    used_disk - current_disk,
+                )
+            } else {
+                (used_cpu, used_mem, used_disk)
+            }
         } else {
-            (used_cpu, used_mem)
-        }
-    } else {
-        (used_cpu, used_mem)
-    };
+            (used_cpu, used_mem, used_disk)
+        };
 
     // Subtract the system reserves from available resources
     let available_cpu = totals.total_cpu as f64 - adjusted_used_cpu - cpu_reserve;
     let available_mem = totals.total_mem_gb - adjusted_used_mem - mem_reserve;
+    let available_disk = totals.total_disk_gb - adjusted_used_disk - disk_reserve;
     let req_mem = parse_mem_gb(req_mem_gb);
+    let req_disk = req_disk_gb as f64;
 
-    req_cpu as f64 <= available_cpu && req_mem <= available_mem
+    req_cpu as f64 <= available_cpu && req_mem <= available_mem && req_disk <= available_disk
 }
 
 fn parse_mem_gb(mem: &str) -> f64 {
@@ -333,16 +428,25 @@ pub fn get_uid_from_user_string(user: &str) -> io::Result<u32> {
 }
 
 pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
+    // Get system reserves
     let cpu_reserve = get_system_cpu_reserve() as f64;
     let mem_reserve = get_system_mem_reserve() as f64;
+    let disk_reserve = get_system_disk_reserve() as f64;
+
+    // Calculate usage
     let used_cpu: f64 = allocations.iter().map(|a| a.cpu_quota / 100.0).sum();
     let used_mem: f64 = allocations
         .iter()
         .map(|a| a.mem_bytes as f64 / 1_000_000_000.0)
         .sum();
-    // Subtract the system reserves from available resources
+    let used_disk: f64 = allocations
+        .iter()
+        .map(|a| a.disk_bytes as f64 / 1_000_000_000.0)
+        .sum();
+
     let available_cpu = totals.total_cpu as f64 - used_cpu - cpu_reserve;
     let available_mem = totals.total_mem_gb - used_mem - mem_reserve;
+    let available_disk = totals.total_disk_gb - used_disk - disk_reserve;
 
     // System overview table
     println!(
@@ -369,16 +473,18 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
             Cell::new("Metric").fg(Color::Cyan),
             Cell::new("CPUs").fg(Color::Cyan),
             Cell::new("RAM (GB)").fg(Color::Cyan),
+            Cell::new("Disk (GB)").fg(Color::Cyan),
         ]);
 
     overview_table.add_row(vec![
         Cell::new("Total").fg(Color::White),
         Cell::new(format!("{}", totals.total_cpu)).fg(Color::White),
         Cell::new(format!("{:.2}", totals.total_mem_gb)).fg(Color::White),
+        Cell::new(format!("{:.2}", totals.total_disk_gb)).fg(Color::White),
     ]);
 
     // Show system reserves if configured
-    if cpu_reserve > 0.0 || mem_reserve > 0.0 {
+    if cpu_reserve > 0.0 || mem_reserve > 0.0 || disk_reserve > 0.0 {
         let cpu_reserve_str = if cpu_reserve > 0.0 {
             format!("{:.2}", cpu_reserve)
         } else {
@@ -389,10 +495,16 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
         } else {
             "-".to_string()
         };
+        let disk_reserve_str = if disk_reserve > 0.0 {
+            format!("{:.2}", disk_reserve)
+        } else {
+            "-".to_string()
+        };
         overview_table.add_row(vec![
             Cell::new("Reserved (System)").fg(Color::Magenta),
             Cell::new(cpu_reserve_str).fg(Color::Magenta),
             Cell::new(mem_reserve_str).fg(Color::Magenta),
+            Cell::new(disk_reserve_str).fg(Color::Magenta),
         ]);
     }
 
@@ -400,12 +512,14 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
         Cell::new("Allocated").fg(Color::Yellow),
         Cell::new(format!("{:.2}", used_cpu)).fg(Color::Yellow),
         Cell::new(format!("{:.2}", used_mem)).fg(Color::Yellow),
+        Cell::new(format!("{:.2}", used_disk)).fg(Color::Yellow),
     ]);
 
     overview_table.add_row(vec![
         Cell::new("Available").fg(Color::Green),
         Cell::new(format!("{:.2}", available_cpu)).fg(Color::Green),
         Cell::new(format!("{:.2}", available_mem)).fg(Color::Green),
+        Cell::new(format!("{:.2}", available_disk)).fg(Color::Green),
     ]);
 
     println!("{}", overview_table);
@@ -426,13 +540,14 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
                 Cell::new("CPU Quota").fg(Color::Cyan),
                 Cell::new("CPUs").fg(Color::Cyan),
                 Cell::new("RAM (GB)").fg(Color::Cyan),
+                Cell::new("Disk (GB)").fg(Color::Cyan),
             ]);
 
         for a in allocations {
             let username = get_username_from_uid(&a.uid).unwrap_or_else(|| format!("({})", a.uid));
 
             // Check if user has no custom allocations (both CPU and Memory are 0)
-            let has_no_allocation = a.cpu_quota == 0.0 && a.mem_bytes == 0;
+            let has_no_allocation = a.cpu_quota == 0.0 && a.mem_bytes == 0 && a.disk_bytes == 0;
 
             if has_no_allocation {
                 // Display "Not Set" for users without custom resource limits
@@ -442,17 +557,20 @@ pub fn print_status(totals: &SystemTotals, allocations: &[UserAlloc]) {
                     Cell::new("Not Set").fg(Color::DarkGrey),
                     Cell::new("Not Set").fg(Color::DarkGrey),
                     Cell::new("Not Set").fg(Color::DarkGrey),
+                    Cell::new("Not Set").fg(Color::DarkGrey),
                 ]);
             } else {
                 // Display actual values for users with custom allocations
                 let cpu_cores = a.cpu_quota / 100.0;
                 let mem_gb = a.mem_bytes as f64 / 1_000_000_000.0;
+                let disk_gb = a.disk_bytes as f64 / 1_000_000_000.0;
                 user_table.add_row(vec![
                     Cell::new(username).fg(Color::White),
                     Cell::new(&a.uid).fg(Color::White),
                     Cell::new(format!("{:.1}%", a.cpu_quota)).fg(Color::Yellow),
                     Cell::new(format!("{:.2}", cpu_cores)).fg(Color::Yellow),
                     Cell::new(format!("{:.2}", mem_gb)).fg(Color::Yellow),
+                    Cell::new(format!("{:.2}", disk_gb)).fg(Color::Yellow),
                 ]);
             }
         }
@@ -496,15 +614,17 @@ mod tests {
         let totals = SystemTotals {
             total_mem_gb: 16.0,
             total_cpu: 8,
+            total_disk_gb: 100.0,
         };
         let allocations = vec![UserAlloc {
             uid: "1000".to_string(),
             cpu_quota: 200.0,         // 2 CPUs
             mem_bytes: 4_000_000_000, // 4 GB
+            disk_bytes: 0,
         }];
 
         // Request 2 CPUs and 4 GB - should be allowed
-        assert!(check_request(&totals, &allocations, 2, "4", None));
+        assert!(check_request(&totals, &allocations, 2, "4", 0, None));
     }
 
     #[test]
@@ -512,15 +632,17 @@ mod tests {
         let totals = SystemTotals {
             total_mem_gb: 16.0,
             total_cpu: 8,
+            total_disk_gb: 100.0,
         };
         let allocations = vec![UserAlloc {
             uid: "1000".to_string(),
             cpu_quota: 600.0,         // 6 CPUs
             mem_bytes: 4_000_000_000, // 4 GB
+            disk_bytes: 0,
         }];
 
         // Request 4 CPUs when only 2 are available - should fail
-        assert!(!check_request(&totals, &allocations, 4, "4", None));
+        assert!(!check_request(&totals, &allocations, 4, "4", 0, None));
     }
 
     #[test]
@@ -528,15 +650,17 @@ mod tests {
         let totals = SystemTotals {
             total_mem_gb: 16.0,
             total_cpu: 8,
+            total_disk_gb: 100.0,
         };
         let allocations = vec![UserAlloc {
             uid: "1000".to_string(),
             cpu_quota: 200.0,          // 2 CPUs
             mem_bytes: 12_000_000_000, // 12 GB
+            disk_bytes: 0,
         }];
 
         // Request 8 GB when only 4 GB available - should fail
-        assert!(!check_request(&totals, &allocations, 2, "8", None));
+        assert!(!check_request(&totals, &allocations, 2, "8", 0, None));
     }
 
     #[test]
@@ -544,42 +668,47 @@ mod tests {
         let totals = SystemTotals {
             total_mem_gb: 32.0,
             total_cpu: 16,
+            total_disk_gb: 100.0,
         };
         let allocations = vec![
             UserAlloc {
                 uid: "1000".to_string(),
                 cpu_quota: 400.0,         // 4 CPUs
                 mem_bytes: 8_000_000_000, // 8 GB
+                disk_bytes: 0,
             },
             UserAlloc {
                 uid: "1001".to_string(),
                 cpu_quota: 200.0,         // 2 CPUs
                 mem_bytes: 4_000_000_000, // 4 GB
+                disk_bytes: 0,
             },
         ];
 
         // 6 CPUs used, 12 GB used
         // Request 5 CPUs and 10 GB - should be allowed (10 available, 20 available)
-        assert!(check_request(&totals, &allocations, 5, "10", None));
+        assert!(check_request(&totals, &allocations, 5, "10", 0, None));
 
         // Request 12 CPUs - should fail (only 10 available)
-        assert!(!check_request(&totals, &allocations, 12, "8", None));
+        assert!(!check_request(&totals, &allocations, 12, "8", 0, None));
     }
 
     #[test]
     fn test_check_request_exact_available() {
-        // Get the actual system reserves to ensure test accounts for them
         let cpu_reserve = get_system_cpu_reserve();
         let mem_reserve = get_system_mem_reserve();
+        let disk_reserve = get_system_disk_reserve();
 
         let totals = SystemTotals {
             total_mem_gb: 16.0,
             total_cpu: 8,
+            total_disk_gb: 100.0,
         };
         let allocations = vec![UserAlloc {
             uid: "1000".to_string(),
             cpu_quota: 400.0,         // 4 CPUs
             mem_bytes: 8_000_000_000, // 8 GB
+            disk_bytes: 0,
         }];
 
         // Calculate actual available resources considering reserves
@@ -588,6 +717,7 @@ mod tests {
         // Available MEM = 16 - 8 - mem_reserve
         let available_cpu = (8u32 - 4u32).saturating_sub(cpu_reserve);
         let available_mem = (16u32 - 8u32).saturating_sub(mem_reserve);
+        let available_disk = 100.0 - (disk_reserve as f64);
 
         // Request exactly what's available (should succeed)
         assert!(check_request(
@@ -595,6 +725,7 @@ mod tests {
             &allocations,
             available_cpu,
             &available_mem.to_string(),
+            available_disk as u32,
             None
         ));
 
@@ -604,6 +735,7 @@ mod tests {
             &allocations,
             available_cpu + 1,
             &available_mem.to_string(),
+            available_disk as u32,
             None
         ));
     }
@@ -618,17 +750,20 @@ mod tests {
         let totals = SystemTotals {
             total_mem_gb: 32.0,
             total_cpu: 16,
+            total_disk_gb: 100.0,
         };
         let allocations = vec![
             UserAlloc {
                 uid: "1000".to_string(),
                 cpu_quota: 400.0,          // 4 CPUs
                 mem_bytes: 10_000_000_000, // 10 GB
+                disk_bytes: 0,
             },
             UserAlloc {
                 uid: "1001".to_string(),
                 cpu_quota: 200.0,         // 2 CPUs
                 mem_bytes: 5_000_000_000, // 5 GB
+                disk_bytes: 0,
             },
         ];
 
@@ -638,11 +773,25 @@ mod tests {
         // Available = (16 - 2 - cpu_reserve, 32 - 5 - mem_reserve)
         // With reserves (2, 4): Available = (12, 23)
         // Request: 5 CPUs, 11 GB - should succeed since 5 <= 12 and 11 <= 23
-        assert!(check_request(&totals, &allocations, 5, "11", Some("1000")));
+        assert!(check_request(
+            &totals,
+            &allocations,
+            5,
+            "11",
+            0,
+            Some("1000")
+        ));
 
         // User 1001 trying to request 1 CPU and 3 GB (decrease from 2 CPUs, 5 GB)
         // Should definitely succeed as this is a decrease
-        assert!(check_request(&totals, &allocations, 1, "3", Some("1001")));
+        assert!(check_request(
+            &totals,
+            &allocations,
+            1,
+            "3",
+            0,
+            Some("1001")
+        ));
 
         // Calculate what's actually available for a new user
         // Used: 6 CPUs, 15 GB
@@ -657,6 +806,7 @@ mod tests {
             &allocations,
             avail_cpu_for_new.min(1),
             &avail_mem_for_new.min(1).to_string(),
+            0,
             Some("1002")
         ));
 
@@ -669,6 +819,7 @@ mod tests {
             &allocations,
             20,
             "15",
+            0,
             Some("1000")
         ));
     }
@@ -716,6 +867,28 @@ mod tests {
 
         // The actual filtering happens in get_user_allocations(),
         // which skips any entry with UID "0"
+    }
+
+    #[test]
+    fn test_check_request_insufficient_disk() {
+        let totals = SystemTotals {
+            total_mem_gb: 32.0,
+            total_cpu: 16,
+            total_disk_gb: 100.0,
+        };
+        let allocations = vec![UserAlloc {
+            uid: "1000".to_string(),
+            cpu_quota: 200.0,           // 2 CPUs
+            mem_bytes: 4_000_000_000,   // 4 GB
+            disk_bytes: 50_000_000_000, // 50 GB
+        }];
+
+        // Request 60 GB disk (Total 100 - Used 50 = 50 Available)
+        // 60 > 50 -> Should fail
+        assert!(!check_request(&totals, &allocations, 2, "4", 60, None));
+
+        // Request 40 GB disk -> Should succeed
+        assert!(check_request(&totals, &allocations, 2, "4", 40, None));
     }
 
     #[test]

@@ -130,16 +130,25 @@ The codebase is organized into four main modules:
 #### Resource Management (`systemd.rs`)
 - `get_calling_user_uid()` - Retrieves the UID of the user who invoked pkexec (reads `PKEXEC_UID` environment variable)
 - `set_user_limits()` - Applies CPU quota and memory limits via `systemctl set-property` on the calling user's slice
+- `set_user_disk_limit()` - Sets disk quota for a user using Linux quotactl syscall (supports XFS and ext4)
 - `release_user_limits()` - Reverts limits back to defaults via `systemctl revert` on the calling user's slice
 - `show_user_info()` - Displays current user's resource allocation
-- `admin_setup_defaults()` - Creates systemd config at `/etc/systemd/system/user-.slice.d/00-defaults.conf`, stores CPU/memory reserves in `/etc/fairshare/policy.toml`, and installs PolicyKit policies
+- `admin_setup_defaults()` - Creates systemd config at `/etc/systemd/system/user-.slice.d/00-defaults.conf`, stores CPU/memory reserves in `/etc/fairshare/policy.toml`, and installs PolicyKit policies. Optionally sets disk quotas if `--disk` and `--disk-partition` are provided.
 - `admin_uninstall_defaults()` - Removes admin configuration files, PolicyKit policies, and reloads systemd
 - `admin_set_user_limits()` - Admin function to force set resource limits for a specific user by UID (works even if user is signed out, includes resource availability checking with warning prompt)
+- `get_all_users_with_disk_usage()` - Enumerates all users with disk usage on a partition using quotactl (discovers AD/LDAP users)
+
+#### Disk Quota Functions (`systemd.rs`)
+- `is_quota_enabled_on_partition()` - Checks if quotas might be available (no 'noquota' mount option)
+- `get_block_device_for_mount()` - Finds the block device for a given mount point
+- `get_filesystem_type()` - Detects filesystem type (XFS, ext4, etc.) for quota API selection
+- `qcmd_xfs()` / `qcmd_std()` - Encodes quotactl commands for XFS and standard filesystems
 
 ### Resource Units
 
 - **CPU**: Represented as percentage quota (100% = 1 core, 400% = 4 cores)
 - **Memory**: Stored internally as bytes (converted from GB: `GB * 1_000_000_000`)
+- **Disk**: Stored in 1KB blocks for ext4, 512-byte blocks for XFS (converted from GB)
 - **Slice Names**: Format `user-1000.slice` (UID-based systemd user slices)
 
 ## Testing Strategy
