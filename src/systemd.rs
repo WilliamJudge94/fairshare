@@ -79,22 +79,25 @@ pub fn set_user_limits(cpu: u32, mem: u32, disk: u32) -> io::Result<()> {
 
     // Try to set disk quota, but don't fail if quotas aren't enabled
     // Disk quotas require filesystem-level support which may not be configured
-    if let Err(e) = set_user_disk_limit(uid, disk, None) {
-        if e.kind() == io::ErrorKind::Unsupported {
-            // Log a single informational message when quotas are not available
-            eprintln!(
-                "{} Disk quotas not available on this filesystem (quotas may not be enabled)",
-                "ℹ".bright_blue().bold()
-            );
-        } else {
-            // Warn about other errors
-            eprintln!(
-                "{} Could not set disk quota: {}",
-                "⚠".bright_yellow().bold(),
-                e
-            );
+    // Skip if disk is 0 (not specified) to avoid unnecessary warnings
+    if disk > 0 {
+        if let Err(e) = set_user_disk_limit(uid, disk, None) {
+            if e.kind() == io::ErrorKind::Unsupported {
+                // Log a single informational message when quotas are not available
+                eprintln!(
+                    "{} Disk quotas not available on this filesystem (quotas may not be enabled)",
+                    "ℹ".bright_blue().bold()
+                );
+            } else {
+                // Warn about other errors
+                eprintln!(
+                    "{} Could not set disk quota: {}",
+                    "⚠".bright_yellow().bold(),
+                    e
+                );
+            }
+            // Continue with CPU and memory limits even if disk quota fails
         }
-        // Continue with CPU and memory limits even if disk quota fails
     }
 
     // Convert GB to bytes with overflow checking
@@ -1087,8 +1090,28 @@ pub fn admin_setup_defaults(
     let partition_val = disk_partition.clone().unwrap_or_default();
     writeln!(
         policy,
-        "[defaults]\ncpu = {}\nmem = {}\ndisk = {}\ncpu_reserve = {}\nmem_reserve = {}\ndisk_reserve = {}\ndisk_partition = \"{}\"\n\n[max_caps]\ncpu = {}\nmem = {}\ndisk = {}\n",
-        cpu, mem, disk_val, cpu_reserve, mem_reserve, disk_reserve, partition_val, max_cpu_cap, mem, disk_val
+        "[defaults]\n\
+         cpu = {}\n\
+         mem = {}\n\
+         disk = {}\n\
+         cpu_reserve = {}\n\
+         mem_reserve = {}\n\
+         disk_reserve = {}\n\
+         disk_partition = \"{}\"\n\n\
+         [max_caps]\n\
+         cpu = {}\n\
+         mem = {}\n\
+         disk = {}\n",
+        cpu,
+        mem,
+        disk_val,
+        cpu_reserve,
+        mem_reserve,
+        disk_reserve,
+        partition_val,
+        max_cpu_cap,
+        mem,
+        disk_val
     )?;
     println!(
         "{} {}",
@@ -1817,16 +1840,19 @@ pub fn admin_set_user_limits(uid: u32, cpu: u32, mem: u32, disk: u32) -> io::Res
     })?;
 
     // Try to set disk quota, but don't fail if quotas aren't enabled
-    if let Err(e) = set_user_disk_limit(uid, disk, None) {
-        if e.kind() != io::ErrorKind::Unsupported {
-            eprintln!(
-                "{} Could not set disk quota for user {}: {}",
-                "⚠".bright_yellow().bold(),
-                uid,
-                e
-            );
+    // Skip if disk is 0 (not specified) to avoid unnecessary warnings
+    if disk > 0 {
+        if let Err(e) = set_user_disk_limit(uid, disk, None) {
+            if e.kind() != io::ErrorKind::Unsupported {
+                eprintln!(
+                    "{} Could not set disk quota for user {}: {}",
+                    "⚠".bright_yellow().bold(),
+                    uid,
+                    e
+                );
+            }
+            // Continue with CPU and memory limits
         }
-        // Continue with CPU and memory limits
     }
 
     // Calculate CPU quota with overflow checking

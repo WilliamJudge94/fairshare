@@ -147,8 +147,8 @@ fn main() {
 
                 (avail_cpu, avail_mem, avail_disk)
             } else {
-                // Use the provided CPU and memory values
-                (cpu.unwrap(), mem.unwrap(), disk.unwrap())
+                // Use the provided CPU and memory values, disk defaults to 0 if not specified
+                (cpu.unwrap(), mem.unwrap(), disk.unwrap_or(0))
             };
 
             if !check_request(
@@ -403,7 +403,7 @@ fn main() {
                     &allocations,
                     *cpu,
                     &mem.to_string(),
-                    *disk,
+                    disk.unwrap_or(0),
                     Some(&uid.to_string()),
                 ) {
                     if !force {
@@ -442,7 +442,7 @@ fn main() {
                     }
                 }
 
-                if let Err(e) = admin_set_user_limits(uid, *cpu, *mem, *disk) {
+                if let Err(e) = admin_set_user_limits(uid, *cpu, *mem, disk.unwrap_or(0)) {
                     eprintln!(
                         "{} {}: {}",
                         "✗".red().bold(),
@@ -452,12 +452,18 @@ fn main() {
                     std::process::exit(1);
                 }
 
+                let disk_val = disk.unwrap_or(0);
+                let disk_display = if disk_val > 0 {
+                    format!("{}G Disk", disk_val).bright_yellow().bold()
+                } else {
+                    "no disk quota".bright_yellow().bold()
+                };
                 println!(
                     "{} Allocated {}, {} and {} for user {}.",
                     "✓".green().bold(),
                     format!("{} CPU(s)", cpu).bright_yellow().bold(),
                     format!("{}G RAM", mem).bright_yellow().bold(),
-                    format!("{}G Disk", disk).bright_yellow().bold(),
+                    disk_display,
                     username.bright_cyan()
                 );
             }

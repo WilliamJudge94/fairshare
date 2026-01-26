@@ -443,10 +443,9 @@ fn test_request_negative_mem() {
 #[test]
 fn test_request_minimum_valid_values() {
     // Test that minimum valid values (1 CPU, 1 GB) are accepted
+    // Note: --disk is optional for backwards compatibility
     let output = Command::new("cargo")
-        .args([
-            "run", "--", "request", "--cpu", "1", "--mem", "1", "--disk", "1",
-        ])
+        .args(["run", "--", "request", "--cpu", "1", "--mem", "1"])
         .output()
         .expect("Failed to execute command");
 

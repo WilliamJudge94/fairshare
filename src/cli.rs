@@ -42,8 +42,8 @@ pub enum Commands {
         #[arg(long, required_unless_present = "all", value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem: Option<u32>,
 
-        /// Amount of Disk in GB to request (1-10000)
-        #[arg(long, required_unless_present = "all", value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
+        /// Amount of disk in GB to request (1-10000)
+        #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
         disk: Option<u32>,
 
         /// Request all remaining available resources
@@ -153,9 +153,9 @@ pub enum AdminSubcommands {
         #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_MEM as u64..=MAX_MEM as u64))]
         mem: u32,
 
-        /// Amount of Disk in GB to allocate (1-10000)
+        /// Amount of disk in GB to allocate (1-10000)
         #[arg(long, value_parser = RangedU64ValueParser::<u32>::new().range(MIN_DISK as u64..=MAX_DISK as u64))]
-        disk: u32,
+        disk: Option<u32>,
 
         /// Skip resource availability warning prompt
         #[arg(long)]
